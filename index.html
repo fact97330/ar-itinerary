@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（MindAR・手動起動＋キャッシュ無視）</title>
+  <title>ARしおり（MindAR・手動起動＋自動リスタート）</title>
   <!-- A-Frame & MindAR (CDN) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -32,7 +32,7 @@
   <button id="startCam" class="start-btn">カメラ開始</button>
   <div class="toast" id="toast"></div>
 
-  <!-- ▼ targets.mind にクエリ ?v=3 を付与（キャッシュ回避） -->
+  <!-- ▼ targets.mind にクエリ ?v=3（キャッシュ回避） -->
   <a-scene
     mindar-image="imageTargetSrc: targets.mind?v=3; autoStart: false; uiScanning: true; uiLoading: true;"
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
@@ -40,13 +40,11 @@
     device-orientation-permission-ui="enabled: false">
 
     <a-assets>
-      <!-- 本物のしおり画像（差し替え推奨） -->
       <img id="realTrip" src="assets/real-itinerary.jpg">
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー（targetIndex:0）が見つかったとき、このエンティティ以下が表示される -->
     <a-entity mindar-image-target="targetIndex: 0">
       <a-plane id="overlay" src="#realTrip"
                position="0 0 0" rotation="0 0 0"
@@ -56,8 +54,8 @@
   </a-scene>
 
   <script>
-    // 画像の縦横比に合わせて、オーバーレイ平面の幅/高さを設定（幅=1を基準）
-    (function setOverlaySize(){
+    // 画像比率で平面サイズを調整
+    (function(){
       const img = document.getElementById('realTrip');
       const plane = document.getElementById('overlay');
       const setSize = () => {
@@ -71,43 +69,82 @@
       img.addEventListener('load', setSize);
     })();
 
-    // targets.mind の存在チェック（クエリ付きでHEAD）
+    // targets.mind の存在チェック（クエリ付き）
     fetch('targets.mind?v=3', {method: 'HEAD'}).then(res => {
       if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
     }).catch(()=>{});
 
-    // 画面下の小さなトースト表示
+    // 小さなトースト
     function showToast(msg){
       const t = document.getElementById('toast');
       t.textContent = msg; t.style.display = 'block';
       setTimeout(()=>{ t.style.display='none'; }, 4200);
     }
 
-    // MindAR手動起動（iOSの黒画面対策）
+    // ★ iOS対策：手動起動＋回転/復帰/再描画で再起動
     (function(){
-      const btn = document.getElementById('startCam');
+      const btn  = document.getElementById('startCam');
       const hint = document.getElementById('hint');
       const scene = document.querySelector('a-scene');
 
-      async function startCamera(){
+      let starting = false;
+      let started  = false;
+
+      async function startCamera(force=false){
+        if (starting) return;
+        if (started && !force) return;
+        starting = true;
         try{
-          // A-Frame/MindAR の system 経由でカメラ起動
+          // 念のため一度 stop → start（Safariで復帰できない場合があるため）
+          try { await scene.systems['mindar-image-system'].stop(); } catch(_){}
           await scene.systems['mindar-image-system'].start();
+          started = true;
           btn.style.display='none';
           hint.textContent = '偽しおりを画面に入れてください';
         }catch(e){
-          alert('カメラ起動に失敗: ' + (e && e.message ? e.message : e));
           console.error(e);
+          alert('カメラ起動に失敗: ' + (e && e.message ? e.message : e));
+        }finally{
+          starting = false;
         }
       }
 
       // ボタンで起動
-      btn.addEventListener('click', startCamera);
+      btn.addEventListener('click', () => startCamera(true));
 
-      // 初回のどこかのタップでも起動（ユーザー操作扱い）
-      const once = () => { startCamera(); };
-      document.addEventListener('touchend', once, {once:true});
-      document.addEventListener('click', once, {once:true});
+      // 初回タップでも起動（ユーザー操作扱い）
+      const once = () => startCamera(true);
+      document.addEventListener('pointerdown', once, {once:true});
+      document.addEventListener('touchend',   once, {once:true});
+      document.addEventListener('click',      once, {once:true});
+
+      // 端末回転で再起動（少し遅延を入れると安定）
+      window.addEventListener('orientationchange', () => {
+        setTimeout(() => startCamera(true), 350);
+      });
+
+      // タブ復帰/履歴復帰（bfcache）時に再起動
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          setTimeout(() => startCamera(true), 100);
+        }
+      });
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) setTimeout(() => startCamera(true), 100);
+      });
+
+      // 稀にWebGLコンテキストが落ちることがある → 予防的にリロード
+      setTimeout(() => {
+        const canvas = scene && scene.renderer && scene.renderer.domElement;
+        if (canvas) {
+          canvas.addEventListener('webglcontextlost', (ev) => {
+            ev.preventDefault();
+            // 余力があれば start 再試行、ダメならリロード
+            startCamera(true);
+            setTimeout(() => { if (!started) location.reload(); }, 800);
+          }, {passive:false});
+        }
+      }, 1500);
 
       // 状態表示
       scene.addEventListener('arReady', () => {
