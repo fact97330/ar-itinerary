@@ -32,9 +32,9 @@
   <button id="startCam" class="start-btn">カメラ開始</button>
   <div class="toast" id="toast"></div>
 
-  <!-- ▼ targets.mind にクエリ ?v=3（キャッシュ回避） -->
+  <!-- ▼ targets.mind にクエリ ?v=4（キャッシュ回避） -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=3; autoStart: false; uiScanning: true; uiLoading: true;"
+    mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false">
@@ -54,7 +54,7 @@
   </a-scene>
 
   <script>
-    // 画像比率で平面サイズを調整
+    // 画像比率で平面サイズ調整
     (function(){
       const img = document.getElementById('realTrip');
       const plane = document.getElementById('overlay');
@@ -70,18 +70,17 @@
     })();
 
     // targets.mind の存在チェック（クエリ付き）
-    fetch('targets.mind?v=3', {method: 'HEAD'}).then(res => {
+    fetch('targets.mind?v=4', {method: 'HEAD'}).then(res => {
       if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
     }).catch(()=>{});
 
-    // 小さなトースト
     function showToast(msg){
       const t = document.getElementById('toast');
       t.textContent = msg; t.style.display = 'block';
       setTimeout(()=>{ t.style.display='none'; }, 4200);
     }
 
-    // ★ iOS対策：手動起動＋回転/復帰/再描画で再起動
+    // ★ iOS対策：手動起動＋回転/復帰/履歴復帰で自動リスタート
     (function(){
       const btn  = document.getElementById('startCam');
       const hint = document.getElementById('hint');
@@ -95,7 +94,6 @@
         if (started && !force) return;
         starting = true;
         try{
-          // 念のため一度 stop → start（Safariで復帰できない場合があるため）
           try { await scene.systems['mindar-image-system'].stop(); } catch(_){}
           await scene.systems['mindar-image-system'].start();
           started = true;
@@ -118,12 +116,12 @@
       document.addEventListener('touchend',   once, {once:true});
       document.addEventListener('click',      once, {once:true});
 
-      // 端末回転で再起動（少し遅延を入れると安定）
+      // 端末回転時
       window.addEventListener('orientationchange', () => {
         setTimeout(() => startCamera(true), 350);
       });
 
-      // タブ復帰/履歴復帰（bfcache）時に再起動
+      // タブ復帰・履歴復帰（bfcache）
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           setTimeout(() => startCamera(true), 100);
@@ -133,13 +131,12 @@
         if (e.persisted) setTimeout(() => startCamera(true), 100);
       });
 
-      // 稀にWebGLコンテキストが落ちることがある → 予防的にリロード
+      // WebGLコンテキストロスト対策
       setTimeout(() => {
         const canvas = scene && scene.renderer && scene.renderer.domElement;
         if (canvas) {
           canvas.addEventListener('webglcontextlost', (ev) => {
             ev.preventDefault();
-            // 余力があれば start 再試行、ダメならリロード
             startCamera(true);
             setTimeout(() => { if (!started) location.reload(); }, 800);
           }, {passive:false});
