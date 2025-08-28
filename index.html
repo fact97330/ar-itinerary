@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（MindAR・手動起動付き）</title>
+  <title>ARしおり（MindAR・手動起動＋キャッシュ無視）</title>
   <!-- A-Frame & MindAR (CDN) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -32,8 +32,9 @@
   <button id="startCam" class="start-btn">カメラ開始</button>
   <div class="toast" id="toast"></div>
 
+  <!-- ▼ targets.mind にクエリ ?v=3 を付与（キャッシュ回避） -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind; autoStart: false; uiScanning: true; uiLoading: true;"
+    mindar-image="imageTargetSrc: targets.mind?v=3; autoStart: false; uiScanning: true; uiLoading: true;"
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false">
@@ -70,8 +71,8 @@
       img.addEventListener('load', setSize);
     })();
 
-    // targets.mind の存在チェック（簡易）
-    fetch('targets.mind', {method: 'HEAD'}).then(res => {
+    // targets.mind の存在チェック（クエリ付きでHEAD）
+    fetch('targets.mind?v=3', {method: 'HEAD'}).then(res => {
       if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
     }).catch(()=>{});
 
@@ -82,7 +83,7 @@
       setTimeout(()=>{ t.style.display='none'; }, 4200);
     }
 
-    // MindAR手動起動（iOSでの黒画面対策）
+    // MindAR手動起動（iOSの黒画面対策）
     (function(){
       const btn = document.getElementById('startCam');
       const hint = document.getElementById('hint');
@@ -103,14 +104,13 @@
       // ボタンで起動
       btn.addEventListener('click', startCamera);
 
-      // どこかを初回タップでも起動（ユーザー操作扱い）
+      // 初回のどこかのタップでも起動（ユーザー操作扱い）
       const once = () => { startCamera(); };
       document.addEventListener('touchend', once, {once:true});
       document.addEventListener('click', once, {once:true});
 
-      // イベントで状態表示
+      // 状態表示
       scene.addEventListener('arReady', () => {
-        // MindARの準備完了
         hint.textContent = '偽しおりを画面に入れてください';
       });
       scene.addEventListener('targetFound', () => {
