@@ -34,10 +34,11 @@
 
   <!-- ▼ targets.mind にクエリ ?v=4（キャッシュ回避） -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
-    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: false">
+  mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
+  renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: true"
+  vr-mode-ui="enabled: false"
+  device-orientation-permission-ui="enabled: false"
+  embedded>
 
     <a-assets>
       <img id="realTrip" src="assets/real-itinerary.jpg">
