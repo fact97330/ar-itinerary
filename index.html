@@ -88,7 +88,7 @@
       if (img.complete) applySize(); else img.addEventListener('load', applySize);
 
       const sceneEl = document.querySelector('a-scene');
-      const arSystem = sceneEl.systems['mindar-image-system'];
+      let arSystem = null; // scene loaded 後に取得
       const startUI = document.getElementById('start');
       const startBtn = document.getElementById('startBtn');
       const errBox = document.getElementById('err');
@@ -123,6 +123,11 @@
       const anchor = document.querySelector('[mindar-image-target]');
       anchor.addEventListener('targetFound', () => {
         document.getElementById('hint')?.classList.add('hidden');
+      });
+
+      // MindAR からのエラーイベント
+      sceneEl.addEventListener('arError', (e) => {
+        showErr('AR初期化エラー: ' + (e?.detail?.message || 'unknown'));
       });
     })();
   </script>
