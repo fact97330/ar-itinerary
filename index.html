@@ -12,10 +12,15 @@
     html, body { height: 100%; margin: 0; background: #000; }
     /* 画面上の簡単なヘルプ */
     #ui { position: fixed; left: 0; right: 0; top: 0; padding: 12px env(safe-area-inset-right) 12px env(safe-area-inset-left);
-          display: flex; gap: 8px; align-items: center; justify-content: center; z-index: 2; pointer-events: none; }
+          display: flex; gap: 8px; align-items: center; justify-content: center; z-index: 3; pointer-events: none; }
     #hint { background: rgba(0,0,0,.55); color: #fff; font: 600 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 10px 12px; border-radius: 10px; pointer-events: auto; }
     #hint button { margin-left: 8px; }
     .hidden { display: none; }
+    /* スタート画面（iOSでのユーザー操作トリガー用） */
+    #start { position: fixed; inset: 0; display: grid; place-items: center; background: #000; z-index: 4; }
+    #start .box { text-align: center; color: #fff; font: 600 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    #start button { padding: 14px 22px; font: inherit; border-radius: 12px; border: 0; }
+    #err { margin-top: 10px; color: #ffb4b4; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -34,8 +39,17 @@
       ./assets/real-itinerary.png ← 差し替えたい本物のしおり画像
   -->
 
+  <!-- スタート画面（ユーザーの明示タップでカメラ起動を確実にする） -->
+  <div id="start">
+    <div class="box">
+      <div style="opacity:.85;margin-bottom:16px">「ARを開始」を押してカメラを許可してください</div>
+      <button id="startBtn">ARを開始</button>
+      <div id="err" class="hidden"></div>
+    </div>
+  </div>
+
   <a-scene
-    mindar-image="imageTargetSrc: ./targets.mind;"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: true; uiScanning: true;"
     renderer="colorManagement: true, physicallyCorrectLights: true"
     color-management
     vr-mode-ui="enabled: false"
@@ -44,7 +58,7 @@
   >
     <a-assets>
       <!-- 差し替え表示する本物のしおり -->
-      <img id="real" src="./assets/real-itinerary.png" crossorigin="anonymous">
+      <img id="real" src="./assets/real-itinerary.png" crossorigin="anonymous" />
     </a-assets>
 
     <!-- iOS Safariではlook-controlsは不要。AR空間固定のカメラを使う -->
@@ -73,14 +87,42 @@
       }
       if (img.complete) applySize(); else img.addEventListener('load', applySize);
 
+      const sceneEl = document.querySelector('a-scene');
+      const arSystem = sceneEl.systems['mindar-image-system'];
+      const startUI = document.getElementById('start');
+      const startBtn = document.getElementById('startBtn');
+      const errBox = document.getElementById('err');
+
+      function showErr(msg){ errBox.textContent = msg; errBox.classList.remove('hidden'); }
+
+      // 1) 非HTTPSだとカメラは動きません
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+        showErr('このページはHTTPSで開いてください（GitHub Pages を有効化）');
+      }
+
+      // 2) iOSではユーザー操作から start() を呼ぶのが確実
+      startBtn.addEventListener('click', async () => {
+        errBox.classList.add('hidden');
+        try {
+          await arSystem.start(); // ここでカメラ起動 & 権限ダイアログ
+          startUI.classList.add('hidden');
+          document.getElementById('hint')?.classList.add('hidden');
+        } catch (e) {
+          // 典型的な失敗パターンのメッセージ
+          if (/NotAllowedError|Permission/i.test(String(e))) {
+            showErr('カメラの権限が拒否されています。アドレスバー左の「aA」→ Webサイトの設定 → カメラ：許可 に変更してください。');
+          } else if (/NotFoundError|DevicesNotFoundError/i.test(String(e))) {
+            showErr('カメラが見つかりません。別のブラウザタブで使用中でないか確認してください。');
+          } else {
+            showErr('カメラ起動に失敗：' + e);
+          }
+        }
+      });
+
       // 検出/ロスト時にヘルプの表示切替（任意）
       const anchor = document.querySelector('[mindar-image-target]');
       anchor.addEventListener('targetFound', () => {
         document.getElementById('hint')?.classList.add('hidden');
-      });
-      anchor.addEventListener('targetLost', () => {
-        // 失ったらヒントを再表示してもOK。不要ならコメントアウト
-        // document.getElementById('hint')?.classList.remove('hidden');
       });
     })();
   </script>
