@@ -1,133 +1,159 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Proposal AR Itinerary</title>
-  <!-- A-Frame & MindAR (pinned versions that work well on iOS Safari) -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>ARしおり（MindAR・手動起動＋自動リスタート）</title>
+  <!-- A-Frame & MindAR (CDN) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/dist/mindar-image.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; background: #000; }
-    /* 画面上の簡単なヘルプ */
-    #ui { position: fixed; left: 0; right: 0; top: 0; padding: 12px env(safe-area-inset-right) 12px env(safe-area-inset-left);
-          display: flex; gap: 8px; align-items: center; justify-content: center; z-index: 3; pointer-events: none; }
-    #hint { background: rgba(0,0,0,.55); color: #fff; font: 600 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 10px 12px; border-radius: 10px; pointer-events: auto; }
-    #hint button { margin-left: 8px; }
-    .hidden { display: none; }
-    /* スタート画面（iOSでのユーザー操作トリガー用） */
-    #start { position: fixed; inset: 0; display: grid; place-items: center; background: #000; z-index: 4; }
-    #start .box { text-align: center; color: #fff; font: 600 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    #start button { padding: 14px 22px; font: inherit; border-radius: 12px; border: 0; }
-    #err { margin-top: 10px; color: #ffb4b4; font-weight: 600; }
+    html, body { margin:0; padding:0; background:#000; overflow:hidden; }
+    .hint {
+      position: fixed; left:0; right:0; top:0;
+      color:#fff; background: rgba(0,0,0,.35); padding:8px 12px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+      font-size:14px; text-align:center; z-index:3; transition: opacity .3s ease;
+    }
+    .start-btn{
+      position: fixed; right: 12px; bottom: 12px; z-index: 4;
+      background:#fff; color:#111; border:none; border-radius:12px; padding:12px 16px;
+      font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.35);
+    }
+    .toast {
+      position: fixed; left:50%; bottom: 16px; transform: translateX(-50%);
+      background: rgba(0,0,0,.7); color:#fff; padding:8px 12px; border-radius:10px; font-size:13px; z-index:5;
+      display:none;
+    }
   </style>
 </head>
 <body>
-  <!-- 画面上の説明（任意） -->
-  <div id="ui">
-    <div id="hint">
-      カメラ使用を「許可」→ 偽のしおりにかざしてください。合致すると本物のしおりが上に表示されます。
-      <button onclick="document.getElementById('hint').classList.add('hidden')">OK</button>
-    </div>
-  </div>
+  <div class="hint" id="hint">カメラを開始し、A4の「偽しおり」を画面に入れてください</div>
+  <button id="startCam" class="start-btn">カメラ開始</button>
+  <div class="toast" id="toast"></div>
 
-  <!--
-    期待する配置：
-      ./index.html
-      ./targets.mind              ← MindARで作成したターゲット（偽しおりの画像から生成）
-      ./assets/real-itinerary.png ← 差し替えたい本物のしおり画像
-  -->
-
-  <!-- スタート画面（ユーザーの明示タップでカメラ起動を確実にする） -->
-  <div id="start">
-    <div class="box">
-      <div style="opacity:.85;margin-bottom:16px">「ARを開始」を押してカメラを許可してください</div>
-      <button id="startBtn">ARを開始</button>
-      <div id="err" class="hidden"></div>
-    </div>
-  </div>
-
+  <!-- ▼ targets.mind にクエリ ?v=4（キャッシュ回避） -->
   <a-scene
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: true; uiScanning: true;"
-    renderer="colorManagement: true, physicallyCorrectLights: true"
-    color-management
+    mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
+    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
     vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: false"
-    embedded
-  >
+    device-orientation-permission-ui="enabled: false">
+
     <a-assets>
-      <!-- 差し替え表示する本物のしおり -->
-      <img id="real" src="./assets/real-itinerary.png" crossorigin="anonymous" />
+      <img id="realTrip" src="assets/real-itinerary.jpg">
     </a-assets>
 
-    <!-- iOS Safariではlook-controlsは不要。AR空間固定のカメラを使う -->
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- ターゲットが見つかった場所に、同じサイズ感で画像を重ねる -->
     <a-entity mindar-image-target="targetIndex: 0">
-      <!--
-        width=1 は「ターゲット画像の実寸幅と同じ」を意味します。
-        height は下のスクリプトで画像の縦横比に合わせて自動設定します。
-      -->
-      <a-plane id="overlay" src="#real" position="0 0 0" rotation="0 0 0"
-               width="1" height="0.6" material="transparent: true; side: double;"></a-plane>
+      <a-plane id="overlay" src="#realTrip"
+               position="0 0 0" rotation="0 0 0"
+               material="transparent: true; opacity: 1.0">
+      </a-plane>
     </a-entity>
   </a-scene>
 
   <script>
-    // 読み込んだ画像の縦横比に合わせて、プレーンの高さを自動調整
-    (function () {
-      const img = document.getElementById('real');
+    // 画像比率で平面サイズ調整
+    (function(){
+      const img = document.getElementById('realTrip');
       const plane = document.getElementById('overlay');
-      function applySize() {
-        if (!img.naturalWidth || !img.naturalHeight) return;
-        const ratio = img.naturalHeight / img.naturalWidth; // 高さ / 幅
-        plane.setAttribute('height', ratio); // width=1 に対する高さ
+      const setSize = () => {
+        if (img.naturalWidth && img.naturalHeight) {
+          const ratio = img.naturalHeight / img.naturalWidth;
+          plane.setAttribute('width', 1);
+          plane.setAttribute('height', 1 * ratio);
+        }
+      };
+      if (img.complete) setSize();
+      img.addEventListener('load', setSize);
+    })();
+
+    // targets.mind の存在チェック（クエリ付き）
+    fetch('targets.mind?v=4', {method: 'HEAD'}).then(res => {
+      if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
+    }).catch(()=>{});
+
+    function showToast(msg){
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.style.display = 'block';
+      setTimeout(()=>{ t.style.display='none'; }, 4200);
+    }
+
+    // ★ iOS対策：手動起動＋回転/復帰/履歴復帰で自動リスタート
+    (function(){
+      const btn  = document.getElementById('startCam');
+      const hint = document.getElementById('hint');
+      const scene = document.querySelector('a-scene');
+
+      let starting = false;
+      let started  = false;
+
+      async function startCamera(force=false){
+        if (starting) return;
+        if (started && !force) return;
+        starting = true;
+        try{
+          try { await scene.systems['mindar-image-system'].stop(); } catch(_){}
+          await scene.systems['mindar-image-system'].start();
+          started = true;
+          btn.style.display='none';
+          hint.textContent = '偽しおりを画面に入れてください';
+        }catch(e){
+          console.error(e);
+          alert('カメラ起動に失敗: ' + (e && e.message ? e.message : e));
+        }finally{
+          starting = false;
+        }
       }
-      if (img.complete) applySize(); else img.addEventListener('load', applySize);
 
-      const sceneEl = document.querySelector('a-scene');
-      let arSystem = null; // scene loaded 後に取得
-      const startUI = document.getElementById('start');
-      const startBtn = document.getElementById('startBtn');
-      const errBox = document.getElementById('err');
+      // ボタンで起動
+      btn.addEventListener('click', () => startCamera(true));
 
-      function showErr(msg){ errBox.textContent = msg; errBox.classList.remove('hidden'); }
+      // 初回タップでも起動（ユーザー操作扱い）
+      const once = () => startCamera(true);
+      document.addEventListener('pointerdown', once, {once:true});
+      document.addEventListener('touchend',   once, {once:true});
+      document.addEventListener('click',      once, {once:true});
 
-      // 1) 非HTTPSだとカメラは動きません
-      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-        showErr('このページはHTTPSで開いてください（GitHub Pages を有効化）');
-      }
+      // 端末回転時
+      window.addEventListener('orientationchange', () => {
+        setTimeout(() => startCamera(true), 350);
+      });
 
-      // 2) iOSではユーザー操作から start() を呼ぶのが確実
-      startBtn.addEventListener('click', async () => {
-        errBox.classList.add('hidden');
-        try {
-          await arSystem.start(); // ここでカメラ起動 & 権限ダイアログ
-          startUI.classList.add('hidden');
-          document.getElementById('hint')?.classList.add('hidden');
-        } catch (e) {
-          // 典型的な失敗パターンのメッセージ
-          if (/NotAllowedError|Permission/i.test(String(e))) {
-            showErr('カメラの権限が拒否されています。アドレスバー左の「aA」→ Webサイトの設定 → カメラ：許可 に変更してください。');
-          } else if (/NotFoundError|DevicesNotFoundError/i.test(String(e))) {
-            showErr('カメラが見つかりません。別のブラウザタブで使用中でないか確認してください。');
-          } else {
-            showErr('カメラ起動に失敗：' + e);
-          }
+      // タブ復帰・履歴復帰（bfcache）
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          setTimeout(() => startCamera(true), 100);
         }
       });
-
-      // 検出/ロスト時にヘルプの表示切替（任意）
-      const anchor = document.querySelector('[mindar-image-target]');
-      anchor.addEventListener('targetFound', () => {
-        document.getElementById('hint')?.classList.add('hidden');
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) setTimeout(() => startCamera(true), 100);
       });
 
-      // MindAR からのエラーイベント
-      sceneEl.addEventListener('arError', (e) => {
-        showErr('AR初期化エラー: ' + (e?.detail?.message || 'unknown'));
+      // WebGLコンテキストロスト対策
+      setTimeout(() => {
+        const canvas = scene && scene.renderer && scene.renderer.domElement;
+        if (canvas) {
+          canvas.addEventListener('webglcontextlost', (ev) => {
+            ev.preventDefault();
+            startCamera(true);
+            setTimeout(() => { if (!started) location.reload(); }, 800);
+          }, {passive:false});
+        }
+      }, 1500);
+
+      // 状態表示
+      scene.addEventListener('arReady', () => {
+        hint.textContent = '偽しおりを画面に入れてください';
+      });
+      scene.addEventListener('targetFound', () => {
+        hint.style.opacity = '0';
+        setTimeout(()=>{ hint.style.display = 'none'; }, 400);
+      });
+      scene.addEventListener('targetLost', () => {
+        hint.style.display = 'block';
+        hint.style.opacity  = '1';
       });
     })();
   </script>
