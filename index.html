@@ -3,57 +3,71 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（MindAR 本番）</title>
+  <title>ARしおり（MindAR・PNG表示＋デバッグ）</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
     html, body { margin:0; padding:0; background:#000; overflow:hidden; }
-    .hint{position:fixed; left:0; right:0; top:0; z-index:3; color:#fff;
-      background:rgba(0,0,0,.35); padding:8px 12px;
-      font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Noto Sans JP',Meiryo;}
-    .start-btn{position:fixed; right:12px; bottom:12px; z-index:4; background:#fff; color:#111;
-      border:0; border-radius:12px; padding:12px 16px; font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.35);}
+    .hint { position:fixed; left:0; right:0; top:0; z-index:3; color:#fff; background:rgba(0,0,0,.35);
+      padding:8px 12px; font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Noto Sans JP',Meiryo; }
+    .start-btn{ position:fixed; right:12px; bottom:12px; z-index:4; background:#fff; color:#111; border:0; border-radius:12px;
+      padding:12px 16px; font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.35); }
+    .panel{ position:fixed; left:8px; bottom:8px; z-index:2147483647; pointer-events:none;
+      background:rgba(0,0,0,.7); color:#00ff88; font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;
+      padding:10px 12px; border-radius:10px; max-width:90vw; white-space:pre-wrap; box-shadow:0 8px 24px rgba(0,0,0,.5) }
   </style>
 </head>
 <body>
   <div class="hint" id="hint">「カメラ開始」を押してターゲットを画面の7〜8割入る距離で映してください</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
+  <div id="panel" class="panel">BUILD v11\n[boot] ページ読み込み中…</div>
 
-  <!-- targets.mind は index.html と同階層。更新したら ?v=10 の数字を上げる -->
+  <!-- targets.mind は index.html と同階層。更新したら ?v=11 を上げる -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=10; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1; warmupTolerance:2; missTolerance:5; filterMinCF:0.001; filterBeta:0.001"
+    mindar-image="imageTargetSrc: targets.mind?v=11; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1; warmupTolerance:2; missTolerance:5; filterMinCF:0.001; filterBeta:0.001"
     renderer="alpha:true; antialias:true; physicallyCorrectLights:true"
     vr-mode-ui="enabled:false"
     device-orientation-permission-ui="enabled:false"
     embedded>
 
     <a-assets timeout="30000">
-      <!-- 置き換え先（本物のしおり） -->
-      <img id="realTrip" src="assets/real-itinerary.jpg">
+      <!-- ★ まず PNG を試し、存在しなければ onerror で JPG に切り替える -->
+      <img id="realTrip" src="assets/real-itinerary.png" crossorigin="anonymous"
+           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg'">
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
-    <!-- 単一ターゲット（targets.mind の最初の画像＝ index 0） -->
+    <!-- 単一ターゲット（targets.mind の index 0） -->
     <a-entity mindar-image-target="targetIndex: 0">
-      <a-plane id="overlay" src="#realTrip"
+      <a-plane id="overlay" src="#realTrip" visible="false"
                position="0 0 0" rotation="0 0 0"
-               material="transparent:true; opacity:1.0"></a-plane>
+               material="transparent:true; side:double; opacity:1.0"></a-plane>
     </a-entity>
   </a-scene>
 
   <script>
-    // 画像比率で平面サイズを合わせる（ターゲット幅=1に対して等倍）
+    const panel=document.getElementById('panel'); const log=(m)=>{ panel.textContent+='\n'+m; };
+    window.addEventListener('error', e=>log('[window.error] '+e.message));
+    window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
+
+    // オーバーレイを画像比率で合わせる
     (function(){
       const img=document.getElementById('realTrip'), plane=document.getElementById('overlay');
-      function setSize(){ if(img.naturalWidth&&img.naturalHeight){ const r=img.naturalHeight/img.naturalWidth; plane.setAttribute('width',1); plane.setAttribute('height',r); } }
+      function setSize(){ if(img.naturalWidth&&img.naturalHeight){ const r=img.naturalHeight/img.naturalWidth; plane.setAttribute('width',1); plane.setAttribute('height',r); log('[overlay] size set h='+r.toFixed(3)); } }
       if(img.complete) setSize(); else img.addEventListener('load', setSize);
     })();
 
-    // iOS対策：手動起動＋高画質リクエスト（連続AF・FHD・背面カメラ）
+    // targets.mind の存在チェック
+    (async()=>{ try{const r=await fetch('targets.mind?v=11',{method:'HEAD'}); log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG')); if(!r.ok) alert('targets.mind が見つかりません');}catch(e){log('[targets HEAD error] '+e.message);} })();
+
     (function(){
-      const btn=document.getElementById('startCam'), hint=document.getElementById('hint');
-      const scene=document.querySelector('a-scene'); let starting=false, started=false;
+      const btn=document.getElementById('startCam'), hint=document.getElementById('hint'), scene=document.querySelector('a-scene');
+      scene.addEventListener('loaded', ()=>log('[scene] loaded'));
+      scene.addEventListener('arReady', ()=>log('[mindar] ready'));
+      scene.addEventListener('arError', e=>log('[mindar] error '+(e.detail?.error||'')));
+
+      let starting=false, started=false;
 
       async function bumpCameraQuality(){
         const v=document.querySelector('video'); if(!v) return;
@@ -68,17 +82,21 @@
             });
           }
           await v.play().catch(()=>{});
-        }catch(_){}
+          setTimeout(()=>log('[video] '+v.videoWidth+'x'+v.videoHeight),600);
+        }catch(e){ log('[bumpCameraQuality] '+(e.message||e)); }
       }
 
       async function startCamera(force=false){
-        if(starting || (started && !force)) return; starting=true;
+        if(starting || (started && !force)) return;
+        starting=true;
         try{
+          log('[start] try');
           try{ await scene.systems['mindar-image-system'].stop(); }catch(_){}
           await scene.systems['mindar-image-system'].start();
           await bumpCameraQuality();
           started=true; btn.style.display='none'; hint.textContent='ターゲットを映してください（画面の7〜8割）';
-        }catch(e){ alert('カメラ起動に失敗: '+(e?.message||e)); }
+          log('[start] done');
+        }catch(e){ log('[start error] '+(e?.message||e)); alert('カメラ起動に失敗: '+(e?.message||e)); }
         finally{ starting=false; }
       }
 
@@ -88,12 +106,22 @@
       document.addEventListener('touchend',once,{once:true});
       document.addEventListener('click',once,{once:true});
 
-      // 見つかったらヒント非表示
+      // 検出時に PNG/JPG を表示（visible 切替）
       const anchor=document.querySelector('[mindar-image-target]');
-      anchor.addEventListener('targetFound', ()=>{ hint.style.opacity='0'; setTimeout(()=>hint.style.display='none',400); });
-      anchor.addEventListener('targetLost',  ()=>{ hint.style.display='block'; hint.style.opacity='1'; });
+      const plane = document.getElementById('overlay');
 
-      // 回転/復帰時に再スタート
+      anchor.addEventListener('targetFound', ()=>{
+        log('[track] found targetIndex 0');
+        plane.setAttribute('visible', true);
+        // 必要ならスムーズなフェードイン
+        plane.setAttribute('animation__fadein', 'property=material.opacity; from=0; to=1; dur=220; easing=easeOutQuad');
+      });
+      anchor.addEventListener('targetLost',  ()=>{
+        log('[track] lost  targetIndex 0');
+        plane.setAttribute('visible', false);
+      });
+
+      // 回転/復帰で再スタート
       window.addEventListener('orientationchange', ()=>setTimeout(()=>startCamera(true),350));
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') setTimeout(()=>startCamera(true),100); });
       window.addEventListener('pageshow', e=>{ if(e.persisted) setTimeout(()=>startCamera(true),100); });
