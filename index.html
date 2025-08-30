@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（MindAR・手動起動）</title>
-  <!-- A-Frame & MindAR（映ってた構成） -->
+  <title>ARしおり（MindAR・手動起動＋targetsプリロード）</title>
+  <!-- A-Frame & MindAR（映ってた構成のまま） -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
@@ -32,21 +32,22 @@
   <button id="startCam" class="start-btn">カメラ開始</button>
   <div class="toast" id="toast"></div>
 
-  <!-- targets.mind は index.html と同階層。キャッシュ回避用に ?v=5 を付与 -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=5; autoStart: false; uiScanning: true; uiLoading: true;"
+    mindar-image="imageTargetSrc: #mindfile; autoStart: false; uiScanning: true; uiLoading: true;"
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: true"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false"
     embedded>
 
-    <a-assets>
+    <a-assets timeout="30000">
+      <!-- ★ targets.mind を先にプリロード（index.html と同階層）。バージョン番号はキャッシュ回避用 -->
+      <a-asset-item id="mindfile" src="targets.mind?v=6"></a-asset-item>
       <img id="realTrip" src="assets/real-itinerary.jpg">
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- 単一ターゲットのみ -->
+    <!-- 単一ターゲットのみ（targets.mindに登録した1枚目＝index 0） -->
     <a-entity mindar-image-target="targetIndex: 0">
       <a-plane id="overlay" src="#realTrip"
                position="0 0 0" rotation="0 0 0"
@@ -59,21 +60,15 @@
     (function(){
       const img = document.getElementById('realTrip');
       const plane = document.getElementById('overlay');
-      const setSize = () => {
+      function setSize(){
         if (img.naturalWidth && img.naturalHeight) {
           const ratio = img.naturalHeight / img.naturalWidth;
           plane.setAttribute('width', 1);
           plane.setAttribute('height', 1 * ratio);
         }
-      };
-      if (img.complete) setSize();
-      img.addEventListener('load', setSize);
+      }
+      if (img.complete) setSize(); else img.addEventListener('load', setSize);
     })();
-
-    // targets.mind の存在チェック（クエリ付き）
-    fetch('targets.mind?v=5', {method: 'HEAD'}).then(res => {
-      if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
-    }).catch(()=>{});
 
     function showToast(msg){
       const t = document.getElementById('toast');
@@ -81,7 +76,7 @@
       setTimeout(()=>{ t.style.display='none'; }, 4200);
     }
 
-    // ★ iOS対策：手動起動＋回転/復帰/履歴復帰で自動リスタート（元のロジックそのまま）
+    // ★ iOS対策：あなたの“動いてた”起動フローそのまま＋状態ログ
     (function(){
       const btn  = document.getElementById('startCam');
       const hint = document.getElementById('hint');
@@ -89,6 +84,11 @@
 
       let starting = false;
       let started  = false;
+
+      // 追加：状態ログ（Safari > 開発 > コンソール で確認）
+      scene.addEventListener('loaded',   ()=>console.log('[scene] loaded'));
+      scene.addEventListener('arReady',  ()=>console.log('[mindar] ready'));
+      scene.addEventListener('arError',  e=>{ console.error('[mindar] error', e.detail); showToast('MindAR error: ' + (e.detail?.error || '')); });
 
       async function startCamera(force=false){
         if (starting) return;
@@ -100,6 +100,7 @@
           started = true;
           btn.style.display='none';
           hint.textContent = '偽しおりを画面に入れてください';
+          console.log('[mindar] started, config =', scene.systems['mindar-image-system'].config);
         }catch(e){
           console.error(e);
           alert('カメラ起動に失敗: ' + (e && e.message ? e.message : e));
