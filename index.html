@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（Multi Targets + Hi-Res Camera）</title>
+  <title>ARしおり（Multi Targets + Stable Start）</title>
 
-  <!-- A-Frame & MindAR（npm版1本。aframe用ビルドはコア同梱） -->
+  <!-- A-Frame & MindAR（npm版） -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
@@ -25,14 +25,10 @@
   <button id="startCam" class="start-btn">ARを開始</button>
   <div class="toast" id="toast"></div>
 
-  <!-- 構成：
-    /index.html
-    /targets.mind                ← 6画像をまとめたもの（登録順が 0..5）
-    /assets/real-itinerary.jpg   ← 本物のしおり（PNGなら拡張子を変更）
-  -->
+  <!-- /index.html と同階層に targets.mind を必ず置く -->
   <a-scene
-    mindar-image="imageTargetSrc: ./targets.mind?v=10; autoStart:false; uiScanning:true; uiLoading:true;"
-    renderer="colorManagement:true; physicallyCorrectLights:true; antialias:true; alpha:true"
+    mindar-image="imageTargetSrc: ./targets.mind?v=11; autoStart:false; uiScanning:true; uiLoading:true;"
+    renderer="alpha:true; antialias:true; physicallyCorrectLights:true; webgl2:false"
     vr-mode-ui="enabled:false"
     device-orientation-permission-ui="enabled:false"
     embedded>
@@ -43,7 +39,7 @@
 
     <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
-    <!-- 複数ターゲット（targets.mind の登録順 0..5 に合わせて増減） -->
+    <!-- 必要なぶんだけ並べる（targets.mind の登録順に合わせて 0..N） -->
     <a-entity mindar-image-target="targetIndex: 0"><a-plane class="overlay" src="#realTrip" position="0 0 0" material="transparent:true; opacity:1.0"></a-plane></a-entity>
     <a-entity mindar-image-target="targetIndex: 1"><a-plane class="overlay" src="#realTrip" position="0 0 0" material="transparent:true; opacity:1.0"></a-plane></a-entity>
     <a-entity mindar-image-target="targetIndex: 2"><a-plane class="overlay" src="#realTrip" position="0 0 0" material="transparent:true; opacity:1.0"></a-plane></a-entity>
@@ -53,29 +49,21 @@
   </a-scene>
 
   <script>
-    // 画像の縦横比で全オーバーレイを同期
+    // 画像比率で全オーバーレイのサイズを同期
     (function(){
       const img = document.getElementById('realTrip');
       const setSize = () => {
         if (img.naturalWidth && img.naturalHeight) {
           const r = img.naturalHeight / img.naturalWidth;
-          document.querySelectorAll('.overlay').forEach(p => {
-            p.setAttribute('width', 1);
-            p.setAttribute('height', r);
-          });
+          document.querySelectorAll('.overlay').forEach(p => { p.setAttribute('width', 1); p.setAttribute('height', r); });
         }
       };
       if (img.complete) setSize(); else img.addEventListener('load', setSize);
     })();
 
-    // targets.mind が取れるか事前チェック（404で start 前に落ちるのを防ぐ）
-    fetch('./targets.mind?v=10', {method:'HEAD'}).then(res=>{
-      if(!res.ok) toast('targets.mind が見つかりません（'+res.status+'）');
-    }).catch(()=>{});
-
     function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 4200); }
 
-    // iOS対策：ユーザー操作→scene.loaded待ち→start()。起動後に高解像度リクエスト。
+    // iOS対策：ユーザー操作→scene.loaded待ち→start()。起動後に高解像度をリクエスト
     (function(){
       const btn  = document.getElementById('startCam');
       const hint = document.getElementById('hint');
@@ -88,17 +76,26 @@
         if (started && !force) return;
         starting = true;
         try{
-          // A-Frame scene の初期化完了を待つ（ここが重要）
+          // targets.mind がなければ先に警告
+          try {
+            const res = await fetch('./targets.mind?v=11', {method:'HEAD'});
+            if (!res.ok) throw new Error('targets.mind が見つかりません（'+res.status+'）');
+          } catch(e) {
+            toast(String(e));
+            return;
+          }
+
+          // Scene の初期化完了を待つ（これを待たないと arSystem が undefined になることがある）
           if (!scene.hasLoaded) {
             await new Promise(r => scene.addEventListener('loaded', r, {once:true}));
           }
           const arSystem = scene.systems['mindar-image-system'];
 
-          // 念のため一旦 stop → start
+          // 念のため停止→開始
           try { await arSystem.stop(); } catch(_){}
           await arSystem.start();
 
-          // 可能なら高解像度＆AFをリクエスト（未対応は無視）
+          // 可能なら高解像度＋連続AFを要求（未対応端末は無視）
           try{
             const video = document.querySelector('video');
             const track = video?.srcObject?.getVideoTracks?.()[0];
@@ -106,6 +103,7 @@
               width: { ideal: 1920 }, height: { ideal: 1080 },
               advanced: [{ focusMode: 'continuous' }]
             });
+            video && (video.playsInline = true);
           }catch(_){}
 
           started = true;
@@ -113,13 +111,12 @@
           hint.textContent = '偽しおりの写真/イラスト部分を映してください';
         }catch(e){
           console.error(e);
-          alert('カメラ起動に失敗: ' + (e?.message || e));
+          toast('カメラ起動に失敗: ' + (e?.message || e));
         }finally{
           starting = false;
         }
       }
 
-      // ボタンで起動（ユーザー操作扱い）
       btn.addEventListener('click', () => startAR(true));
       // 最初のタップでも起動OK
       const once = () => startAR(true);
@@ -127,7 +124,7 @@
       document.addEventListener('touchend',   once, {once:true});
       document.addEventListener('click',      once, {once:true});
 
-      // どのターゲットが反応したかログ（Safariの開発メニューで見られます）
+      // どのターゲットが反応したかログ
       document.querySelectorAll('[mindar-image-target]').forEach((a,i)=>{
         a.addEventListener('targetFound', ()=> console.log('found targetIndex', i));
         a.addEventListener('targetLost',  ()=> console.log('lost  targetIndex', i));
