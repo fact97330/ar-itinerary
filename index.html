@@ -1,130 +1,175 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（PNG表示・flatシェーダ＋デバッグ）</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>ARしおり（MindAR準拠＋PNG表示＋デバッグ10行）</title>
+
+  <!-- MindAR公式のクイックスタートと同じロード順 -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
   <style>
     html, body { margin:0; padding:0; background:#000; overflow:hidden; }
-    .hint{position:fixed;left:0;right:0;top:0;z-index:3;color:#fff;background:rgba(0,0,0,.35);
-      padding:8px 12px;font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Noto Sans JP',Meiryo;}
-    .start-btn{position:fixed;right:12px;bottom:12px;z-index:4;background:#fff;color:#111;border:0;border-radius:12px;
-      padding:12px 16px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.35);}
-    .panel{position:fixed;left:8px;bottom:8px;z-index:2147483647;pointer-events:none;background:rgba(0,0,0,.7);color:#00ff88;
-      font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:10px 12px;border-radius:10px;max-width:90vw;white-space:pre-wrap;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+    .hint {
+      position:fixed; left:0; right:0; top:0; z-index:3; color:#fff;
+      background:rgba(0,0,0,.35); padding:8px 12px;
+      font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Noto Sans JP',Meiryo;
+      text-align:center;
+    }
+    .start-btn{
+      position:fixed; right:12px; bottom:12px; z-index:4;
+      background:#fff; color:#111; border:0; border-radius:12px; padding:12px 16px;
+      font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.35);
+    }
+    /* 常に見えるデバッグパネル（最後の10行だけ保持） */
+    .panel{
+      position:fixed; left:8px; bottom:8px; z-index:2147483647; pointer-events:none;
+      background:rgba(0,0,0,.7); color:#00ff88;
+      font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;
+      padding:8px 10px; border-radius:10px; max-width:90vw; white-space:pre-wrap;
+      box-shadow:0 8px 24px rgba(0,0,0,.5)
+    }
   </style>
 </head>
 <body>
-  <div class="hint" id="hint">「カメラ開始」を押してターゲットを画面の7〜8割入る距離で映してください</div>
+  <div class="hint" id="hint">「カメラ開始」を押してターゲットを画面の7〜8割で真正面から映してください</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
-  <div id="panel" class="panel">BUILD v12\n[boot] ページ読み込み中…</div>
+  <div id="panel" class="panel">BUILD v13\n[boot] ページ読み込み中…</div>
 
-  <!-- targets.mind は index.html と同階層。更新したら ?v=12 を上げる -->
+  <!-- ▼ MindAR公式どおり：a-scene に mindar-image、imageTargetSrc を <a-asset-item> で事前読込 -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=12; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1; warmupTolerance:2; missTolerance:5; filterMinCF:0.001; filterBeta:0.001"
-    renderer="alpha:true; antialias:true"
-    vr-mode-ui="enabled:false"
-    device-orientation-permission-ui="enabled:false"
+    mindar-image="imageTargetSrc: #mindfile; autoStart: false; uiScanning: true; uiLoading: true;"
+    renderer="alpha: true; antialias: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
     embedded>
 
     <a-assets timeout="30000">
-      <!-- PNG優先。無ければJPGに自動フォールバック -->
-      <img id="realTrip" src="assets/real-itinerary.png"
-           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg'">
+      <!-- targets.mind は index.html と同階層。v=13 はキャッシュ回避 -->
+      <a-asset-item id="mindfile" src="targets.mind?v=13"></a-asset-item>
+
+      <!-- 表示したいPNG（無ければJPGにフォールバック） -->
+      <img id="realTrip" src="assets/real-itinerary.png?v=13"
+           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg?v=13'">
     </a-assets>
 
-    <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
+    <!-- MindARの推奨：look-controls無効のカメラ -->
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- 単一ターゲット（index 0）。a-image は flat シェーダ相当で明るく表示される -->
+    <!-- 単一ターゲット（index 0）に a-image を重ねる（flatシェーダで常に明るく表示） -->
     <a-entity mindar-image-target="targetIndex: 0">
       <a-image id="overlay" src="#realTrip" visible="false"
-               position="0 0 0.01" rotation="0 0 0"
-               material="shader:flat; transparent:true; opacity:1; side:double">
+               position="0 0 0.01"
+               material="shader: flat; transparent: true; opacity: 1; side: double">
       </a-image>
     </a-entity>
   </a-scene>
 
   <script>
-    const panel=document.getElementById('panel'); const log=(m)=>{ panel.textContent+='\n'+m; };
-    window.addEventListener('error', e=>log('[window.error] '+e.message));
-    window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
+    // ===== デバッグ（最後の10行だけ表示） =====
+    const panel = document.getElementById('panel');
+    const buf = [];
+    function log(line){
+      buf.push(line);
+      if (buf.length > 10) buf.splice(0, buf.length - 10); // 10行だけ残す
+      panel.textContent = 'BUILD v13' + '\n' + buf.join('\n');
+    }
+    window.addEventListener('error', e => log('[window.error] ' + e.message));
+    window.addEventListener('unhandledrejection', e => log('[promise] ' + (e.reason?.message || e.reason)));
 
-    // a-image は width/height を自動比率で扱えるが、明示的に 1:ratio に合わせておく
+    // ===== オーバーレイのサイズを画像比率で 1:ratio に合わせる =====
     (function(){
-      const img=document.getElementById('realTrip'), overlay=document.getElementById('overlay');
-      function setSize(){ if(img.naturalWidth&&img.naturalHeight){ const r=img.naturalHeight/img.naturalWidth; overlay.setAttribute('width',1); overlay.setAttribute('height',r); log('[overlay] size set h='+r.toFixed(3)); } }
-      if(img.complete) setSize(); else img.addEventListener('load', setSize);
+      const img = document.getElementById('realTrip');
+      const overlay = document.getElementById('overlay');
+      function setSize(){
+        if (img.naturalWidth && img.naturalHeight) {
+          const ratio = img.naturalHeight / img.naturalWidth;
+          overlay.setAttribute('width', 1);
+          overlay.setAttribute('height', ratio);
+          log('[overlay] size set h=' + ratio.toFixed(3));
+        }
+      }
+      if (img.complete) setSize(); else img.addEventListener('load', setSize);
     })();
 
-    // targets.mind の存在チェック
-    (async()=>{ try{const r=await fetch('targets.mind?v=12',{method:'HEAD'}); log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG')); if(!r.ok) alert('targets.mind が見つかりません'); }catch(e){ log('[targets HEAD error] '+e.message); } })();
-
+    // ===== 起動〜トラッキング（MindAR準拠の最小構成＋iOS対策の高画質リクエスト） =====
     (function(){
-      const btn=document.getElementById('startCam'), hint=document.getElementById('hint'), scene=document.querySelector('a-scene');
-      scene.addEventListener('loaded', ()=>log('[scene] loaded'));
-      scene.addEventListener('arReady', ()=>log('[mindar] ready'));
-      scene.addEventListener('arError', e=>log('[mindar] error '+(e.detail?.error||'')));
+      const btn  = document.getElementById('startCam');
+      const hint = document.getElementById('hint');
+      const scene = document.querySelector('a-scene');
+      let starting = false, started = false;
 
-      let starting=false, started=false;
+      // 状態ログ（MindARのイベント）
+      scene.addEventListener('loaded',  ()=> log('[scene] loaded'));
+      scene.addEventListener('arReady', ()=> log('[mindar] ready'));
+      scene.addEventListener('arError', e=> log('[mindar] error ' + (e.detail?.error || '')));
 
       async function bumpCameraQuality(){
-        const v=document.querySelector('video'); if(!v) return;
+        const v = document.querySelector('video'); if (!v) return;
         try{
-          v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.muted=true; await v.play().catch(()=>{});
-          const track=v.srcObject?.getVideoTracks?.()[0];
-          if(track?.applyConstraints){
+          v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.muted = true;
+          await v.play().catch(()=>{});
+          const track = v.srcObject?.getVideoTracks?.()[0];
+          if (track?.applyConstraints){
             await track.applyConstraints({
               facingMode:{ideal:'environment'},
               width:{ideal:1920}, height:{ideal:1080},
               advanced:[{focusMode:'continuous'}]
             });
           }
-          setTimeout(()=>log('[video] '+v.videoWidth+'x'+v.videoHeight),600);
-        }catch(e){ log('[bumpCameraQuality] '+(e.message||e)); }
+          setTimeout(()=> log('[video] ' + v.videoWidth + 'x' + v.videoHeight), 600);
+        }catch(e){ log('[bumpCameraQuality] ' + (e.message || e)); }
       }
 
       async function startCamera(force=false){
-        if(starting || (started && !force)) return;
-        starting=true;
+        if (starting || (started && !force)) return;
+        starting = true;
         try{
           log('[start] try');
           try{ await scene.systems['mindar-image-system'].stop(); }catch(_){}
           await scene.systems['mindar-image-system'].start();
           await bumpCameraQuality();
-          started=true; btn.style.display='none'; hint.textContent='ターゲットを映してください（画面の7〜8割）';
+          started = true;
+          btn.style.display = 'none';
+          hint.textContent = 'ターゲットを映してください（画面の7〜8割）';
           log('[start] done');
-        }catch(e){ log('[start error] '+(e?.message||e)); alert('カメラ起動に失敗: '+(e?.message||e)); }
-        finally{ starting=false; }
+        }catch(e){
+          log('[start error] ' + (e?.message || e));
+          alert('カメラ起動に失敗: ' + (e?.message || e));
+        }finally{
+          starting = false;
+        }
       }
 
-      btn.addEventListener('click', ()=>startCamera(true));
-      const once=()=>startCamera(true);
-      document.addEventListener('pointerdown',once,{once:true});
-      document.addEventListener('touchend',once,{once:true});
-      document.addEventListener('click',once,{once:true});
+      // ユーザー操作で起動（iOS制約対応）
+      btn.addEventListener('click', ()=> startCamera(true));
+      const once = ()=> startCamera(true);
+      document.addEventListener('pointerdown', once, {once:true});
+      document.addEventListener('touchend',   once, {once:true});
+      document.addEventListener('click',      once, {once:true});
 
-      // 検出時の表示/非表示。src を再設定して読込順問題も潰す
-      const anchor=document.querySelector('[mindar-image-target]');
-      const overlay=document.getElementById('overlay');
-      const imgEl=document.getElementById('realTrip');
+      // 検出時：PNGを表示／見失いで非表示
+      const anchor  = document.querySelector('[mindar-image-target]');
+      const overlay = document.getElementById('overlay');
 
       anchor.addEventListener('targetFound', ()=>{
         log('[track] found targetIndex 0');
-        overlay.setAttribute('src', '#realTrip');            // 念のため再バインド
-        overlay.setAttribute('visible', true);               // 表示
-        overlay.setAttribute('material', 'shader:flat; transparent:true; opacity:1; side:double');
+        overlay.setAttribute('src', '#realTrip'); // 念のため再バインド
+        overlay.setAttribute('visible', true);
+        overlay.setAttribute('material', 'shader: flat; transparent: true; opacity: 1; side: double');
       });
       anchor.addEventListener('targetLost',  ()=>{
         log('[track] lost  targetIndex 0');
         overlay.setAttribute('visible', false);
       });
 
-      // 回転/復帰で再スタート
-      window.addEventListener('orientationchange', ()=>setTimeout(()=>startCamera(true),350));
-      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') setTimeout(()=>startCamera(true),100); });
-      window.addEventListener('pageshow', e=>{ if(e.persisted) setTimeout(()=>startCamera(true),100); });
+      // 画面回転/復帰で再スタート（iOSのbfcache・回転対策）
+      window.addEventListener('orientationchange', ()=> setTimeout(()=> startCamera(true), 350));
+      document.addEventListener('visibilitychange', ()=> {
+        if (document.visibilityState === 'visible') setTimeout(()=> startCamera(true), 100);
+      });
+      window.addEventListener('pageshow', (e)=> { if (e.persisted) setTimeout(()=> startCamera(true), 100); });
     })();
   </script>
 </body>
