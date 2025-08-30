@@ -3,14 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（MindAR・安定起動＋黒画面対策）</title>
-
-  <!-- A-Frame & MindAR（npm版） -->
+  <title>ARしおり（MindAR・手動起動＋自動リスタート）</title>
+  <!-- A-Frame & MindAR (CDN) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-
   <style>
-    html, body { height:100%; margin:0; padding:0; background:#000; overflow:hidden; }
+    html, body { margin:0; padding:0; background:#000; overflow:hidden; }
     .hint {
       position: fixed; left:0; right:0; top:0;
       color:#fff; background: rgba(0,0,0,.35); padding:8px 12px;
@@ -30,46 +28,52 @@
   </style>
 </head>
 <body>
-  <div class="hint" id="hint">「カメラ開始」を押してカメラを許可 → 偽しおりを映してください</div>
+  <div class="hint" id="hint">カメラを開始し、A4の「偽しおり」を画面に入れてください</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
   <div class="toast" id="toast"></div>
 
-  <!-- ▼ /index.html と同階層に targets.mind を必ず置く -->
+  <!-- ▼ targets.mind にクエリ ?v=4（キャッシュ回避） -->
   <a-scene
-    style="width:100vw; height:100vh;"
-    mindar-image="imageTargetSrc: ./targets.mind?v=13; autoStart:false; uiScanning:true; uiLoading:true;"
-    renderer="alpha:true; antialias:true; physicallyCorrectLights:true; webgl2:false"
-    vr-mode-ui="enabled:false"
-    device-orientation-permission-ui="enabled:false"
-    embedded>
+  mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
+  renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: true"
+  vr-mode-ui="enabled: false"
+  device-orientation-permission-ui="enabled: false"
+  embedded>
 
-    <a-assets timeout="30000">
-      <img id="realTrip" src="assets/real-itinerary.jpg" crossorigin="anonymous">
+    <a-assets>
+      <img id="realTrip" src="assets/real-itinerary.jpg">
     </a-assets>
 
-    <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- ターゲット（複数にしたい場合はこのブロックを増やす：targetIndex=0,1,2…） -->
     <a-entity mindar-image-target="targetIndex: 0">
-      <a-plane id="overlay" src="#realTrip" position="0 0 0" rotation="0 0 0"
-               material="transparent:true; opacity:1.0"></a-plane>
+      <a-plane id="overlay" src="#realTrip"
+               position="0 0 0" rotation="0 0 0"
+               material="transparent: true; opacity: 1.0">
+      </a-plane>
     </a-entity>
   </a-scene>
 
   <script>
-    // オーバーレイのサイズを画像比率に合わせる
+    // 画像比率で平面サイズ調整
     (function(){
       const img = document.getElementById('realTrip');
       const plane = document.getElementById('overlay');
-      function setSize(){
+      const setSize = () => {
         if (img.naturalWidth && img.naturalHeight) {
-          const r = img.naturalHeight / img.naturalWidth;
+          const ratio = img.naturalHeight / img.naturalWidth;
           plane.setAttribute('width', 1);
-          plane.setAttribute('height', r);
+          plane.setAttribute('height', 1 * ratio);
         }
-      }
-      if (img.complete) setSize(); else img.addEventListener('load', setSize);
+      };
+      if (img.complete) setSize();
+      img.addEventListener('load', setSize);
     })();
+
+    // targets.mind の存在チェック（クエリ付き）
+    fetch('targets.mind?v=4', {method: 'HEAD'}).then(res => {
+      if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
+    }).catch(()=>{});
 
     function showToast(msg){
       const t = document.getElementById('toast');
@@ -77,111 +81,80 @@
       setTimeout(()=>{ t.style.display='none'; }, 4200);
     }
 
-    // iOS対策：ユーザー操作→ scene.loaded を待って start()。videoが本当に再生されたか検証して黒画面を潰す。
+    // ★ iOS対策：手動起動＋回転/復帰/履歴復帰で自動リスタート
     (function(){
       const btn  = document.getElementById('startCam');
       const hint = document.getElementById('hint');
       const scene = document.querySelector('a-scene');
 
-      let starting = false, started = false, retried = false;
-
-      async function waitSceneLoaded(){
-        if (scene.hasLoaded) return;
-        await new Promise(r => scene.addEventListener('loaded', r, {once:true}));
-      }
-
-      async function ensureTargets(){
-        try{
-          const res = await fetch('./targets.mind?v=13', {method:'HEAD'});
-          if (!res.ok) throw new Error('targets.mind が見つかりません（'+res.status+'）');
-        }catch(e){
-          showToast(String(e)); throw e;
-        }
-      }
-
-      function getVideo(){
-        const v = document.querySelector('video');
-        if (v) {
-          v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline','');
-          v.muted = true; v.autoplay = true;
-        }
-        return v;
-      }
-
-      async function waitVideoReady(timeoutMs=2500){
-        const v = getVideo();
-        if (!v) return false;
-        if (v.readyState >= 2 && v.videoWidth > 0) return true;
-        return await new Promise(resolve=>{
-          let done=false;
-          const timer=setTimeout(()=>{ if(!done){done=true;resolve(false);} }, timeoutMs);
-          function ok(){ if(!done){done=true;clearTimeout(timer);resolve(true);} }
-          v.addEventListener('loadedmetadata', ok, {once:true});
-          v.addEventListener('canplay', ok, {once:true});
-        });
-      }
-
-      async function requestHiRes(){
-        const v = getVideo();
-        const track = v?.srcObject?.getVideoTracks?.()[0];
-        if (track?.applyConstraints) {
-          try{
-            await track.applyConstraints({
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 1920 }, height: { ideal: 1080 },
-              advanced: [{ focusMode: 'continuous' }]
-            });
-          }catch(_){}
-        }
-        try { await v?.play(); } catch(_) {}
-      }
+      let starting = false;
+      let started  = false;
 
       async function startCamera(force=false){
         if (starting) return;
         if (started && !force) return;
         starting = true;
         try{
-          await ensureTargets();            // 1) targets.mind 確認
-          await waitSceneLoaded();          // 2) scene 初期化待ち
-
-          const arSystem = scene.systems['mindar-image-system'];
-          try { await arSystem.stop(); } catch(_){}
-          await arSystem.start();           // 3) カメラ起動
-
-          await requestHiRes();             // 4) 画質＋再生要求
-          const ok = await waitVideoReady();// 5) 本当に出たか確認
-
-          if (!ok && !retried) {            // 6) 黒画面なら一度だけリトライ
-            retried = true;
-            try { await arSystem.stop(); } catch(_){}
-            await arSystem.start();
-            await requestHiRes();
-            await waitVideoReady();
-          }
-
+          try { await scene.systems['mindar-image-system'].stop(); } catch(_){}
+          await scene.systems['mindar-image-system'].start();
           started = true;
           btn.style.display='none';
-          hint.textContent='偽しおりを画面に入れてください';
+          hint.textContent = '偽しおりを画面に入れてください';
         }catch(e){
           console.error(e);
-          showToast('カメラ起動に失敗: ' + (e?.message || e));
+          alert('カメラ起動に失敗: ' + (e && e.message ? e.message : e));
         }finally{
           starting = false;
         }
       }
 
-      // ボタンで起動（ユーザー操作扱い）
+      // ボタンで起動
       btn.addEventListener('click', () => startCamera(true));
-      // 初回タップでもOK
+
+      // 初回タップでも起動（ユーザー操作扱い）
       const once = () => startCamera(true);
       document.addEventListener('pointerdown', once, {once:true});
       document.addEventListener('touchend',   once, {once:true});
       document.addEventListener('click',      once, {once:true});
 
-      // （参考）どのターゲットが反応したか
-      document.querySelectorAll('[mindar-image-target]').forEach((a,i)=>{
-        a.addEventListener('targetFound', ()=> console.log('found targetIndex', i));
-        a.addEventListener('targetLost',  ()=> console.log('lost  targetIndex', i));
+      // 端末回転時
+      window.addEventListener('orientationchange', () => {
+        setTimeout(() => startCamera(true), 350);
+      });
+
+      // タブ復帰・履歴復帰（bfcache）
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          setTimeout(() => startCamera(true), 100);
+        }
+      });
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) setTimeout(() => startCamera(true), 100);
+      });
+
+      // WebGLコンテキストロスト対策
+      setTimeout(() => {
+        const canvas = scene && scene.renderer && scene.renderer.domElement;
+        if (canvas) {
+          canvas.addEventListener('webglcontextlost', (ev) => {
+            ev.preventDefault();
+            startCamera(true);
+            setTimeout(() => { if (!started) location.reload(); }, 800);
+          }, {passive:false});
+        }
+      }, 1500);
+
+      // 状態表示
+      scene.addEventListener('arReady', () => {
+        hint.textContent = '偽しおりを画面に入れてください';
+      });
+      scene.addEventListener('targetFound', () => {
+        hint.style.opacity = '0';
+        setTimeout(()=>{ hint.style.display = 'none'; }, 400);
+      });
+      scene.addEventListener('targetLost', () => {
+        hint.style.display = 'block';
+        hint.style.opacity  = '1';
       });
     })();
   </script>
