@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>ARしおり（MindAR・手動起動＋自動リスタート）</title>
-  <!-- A-Frame & MindAR (CDN) -->
+  <title>ARしおり（MindAR・手動起動＋複数ターゲット）</title>
+  <!-- A-Frame & MindAR（映ってた構成と同じ） -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
@@ -32,13 +32,12 @@
   <button id="startCam" class="start-btn">カメラ開始</button>
   <div class="toast" id="toast"></div>
 
-  <!-- ▼ targets.mind にクエリ ?v=4（キャッシュ回避） -->
   <a-scene
-  mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
-  renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: true"
-  vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false"
-  embedded>
+    mindar-image="imageTargetSrc: targets.mind?v=4; autoStart: false; uiScanning: true; uiLoading: true;"
+    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    embedded>
 
     <a-assets>
       <img id="realTrip" src="assets/real-itinerary.jpg">
@@ -46,33 +45,58 @@
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
+    <!-- ▼ 複数ターゲット。targets.mind の“登録順”に合わせて増減（0..5は例） -->
     <a-entity mindar-image-target="targetIndex: 0">
-      <a-plane id="overlay" src="#realTrip"
-               position="0 0 0" rotation="0 0 0"
-               material="transparent: true; opacity: 1.0">
-      </a-plane>
+      <a-plane class="overlay" src="#realTrip" position="0 0 0"
+               material="transparent: true; opacity: 1.0"></a-plane>
+    </a-entity>
+
+    <a-entity mindar-image-target="targetIndex: 1">
+      <a-plane class="overlay" src="#realTrip" position="0 0 0"
+               material="transparent: true; opacity: 1.0"></a-plane>
+    </a-entity>
+
+    <a-entity mindar-image-target="targetIndex: 2">
+      <a-plane class="overlay" src="#realTrip" position="0 0 0"
+               material="transparent: true; opacity: 1.0"></a-plane>
+    </a-entity>
+
+    <a-entity mindar-image-target="targetIndex: 3">
+      <a-plane class="overlay" src="#realTrip" position="0 0 0"
+               material="transparent: true; opacity: 1.0"></a-plane>
+    </a-entity>
+
+    <a-entity mindar-image-target="targetIndex: 4">
+      <a-plane class="overlay" src="#realTrip" position="0 0 0"
+               material="transparent: true; opacity: 1.0"></a-plane>
+    </a-entity>
+
+    <a-entity mindar-image-target="targetIndex: 5">
+      <a-plane class="overlay" src="#realTrip" position="0 0 0"
+               material="transparent: true; opacity: 1.0"></a-plane>
     </a-entity>
   </a-scene>
 
   <script>
-    // 画像比率で平面サイズ調整
+    // 画像比率で平面サイズ調整（すべての .overlay に反映）
     (function(){
       const img = document.getElementById('realTrip');
-      const plane = document.getElementById('overlay');
       const setSize = () => {
         if (img.naturalWidth && img.naturalHeight) {
           const ratio = img.naturalHeight / img.naturalWidth;
-          plane.setAttribute('width', 1);
-          plane.setAttribute('height', 1 * ratio);
+          document.querySelectorAll('.overlay').forEach(p => {
+            p.setAttribute('width', 1);
+            p.setAttribute('height', 1 * ratio);
+          });
         }
       };
       if (img.complete) setSize();
       img.addEventListener('load', setSize);
     })();
 
-    // targets.mind の存在チェック（クエリ付き）
+    // targets.mind の存在チェック
     fetch('targets.mind?v=4', {method: 'HEAD'}).then(res => {
-      if (!res.ok) showToast('targets.mind が見つかりません。MindARのImage Compilerで作成し、このファイルと同じ階層に置いてください。');
+      if (!res.ok) showToast('targets.mind が見つかりません。index.html と同じ階層に置いてください。');
     }).catch(()=>{});
 
     function showToast(msg){
@@ -81,7 +105,7 @@
       setTimeout(()=>{ t.style.display='none'; }, 4200);
     }
 
-    // ★ iOS対策：手動起動＋回転/復帰/履歴復帰で自動リスタート
+    // ★ iOS対策：あなたの“動いてた”起動フローをそのまま使用
     (function(){
       const btn  = document.getElementById('startCam');
       const hint = document.getElementById('hint');
@@ -108,53 +132,22 @@
         }
       }
 
-      // ボタンで起動
+      // ボタンで起動 + 初回タップで起動
       btn.addEventListener('click', () => startCamera(true));
-
-      // 初回タップでも起動（ユーザー操作扱い）
       const once = () => startCamera(true);
       document.addEventListener('pointerdown', once, {once:true});
       document.addEventListener('touchend',   once, {once:true});
       document.addEventListener('click',      once, {once:true});
 
-      // 端末回転時
-      window.addEventListener('orientationchange', () => {
-        setTimeout(() => startCamera(true), 350);
-      });
+      // 回転/復帰対策（元コードのまま）
+      window.addEventListener('orientationchange', () => setTimeout(() => startCamera(true), 350));
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => startCamera(true), 100); });
+      window.addEventListener('pageshow', (e) => { if (e.persisted) setTimeout(() => startCamera(true), 100); });
 
-      // タブ復帰・履歴復帰（bfcache）
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          setTimeout(() => startCamera(true), 100);
-        }
-      });
-      window.addEventListener('pageshow', (e) => {
-        if (e.persisted) setTimeout(() => startCamera(true), 100);
-      });
-
-      // WebGLコンテキストロスト対策
-      setTimeout(() => {
-        const canvas = scene && scene.renderer && scene.renderer.domElement;
-        if (canvas) {
-          canvas.addEventListener('webglcontextlost', (ev) => {
-            ev.preventDefault();
-            startCamera(true);
-            setTimeout(() => { if (!started) location.reload(); }, 800);
-          }, {passive:false});
-        }
-      }, 1500);
-
-      // 状態表示
-      scene.addEventListener('arReady', () => {
-        hint.textContent = '偽しおりを画面に入れてください';
-      });
-      scene.addEventListener('targetFound', () => {
-        hint.style.opacity = '0';
-        setTimeout(()=>{ hint.style.display = 'none'; }, 400);
-      });
-      scene.addEventListener('targetLost', () => {
-        hint.style.display = 'block';
-        hint.style.opacity  = '1';
+      // どのターゲットが反応したかをデバッグ表示（Safari > 開発 > コンソールで確認）
+      document.querySelectorAll('[mindar-image-target]').forEach((anchor, i)=>{
+        anchor.addEventListener('targetFound', ()=> console.log('found targetIndex', i));
+        anchor.addEventListener('targetLost',  ()=> console.log('lost  targetIndex', i));
       });
     })();
   </script>
