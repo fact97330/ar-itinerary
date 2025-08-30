@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>ARしおり（MindAR・PNG表示＋デバッグ）</title>
+  <!-- 変えていない：映っていた構成 -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
@@ -20,29 +21,30 @@
 <body>
   <div class="hint" id="hint">「カメラ開始」を押してターゲットを画面の7〜8割入る距離で映してください</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
-  <div id="panel" class="panel">BUILD v11\n[boot] ページ読み込み中…</div>
+  <div id="panel" class="panel">BUILD v19\n[boot] ページ読み込み中…</div>
 
-  <!-- targets.mind は index.html と同階層。更新したら ?v=11 を上げる -->
+  <!-- targets.mind は index.html と同階層。クエリを上げてキャッシュ回避 -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=11; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1; warmupTolerance:2; missTolerance:5; filterMinCF:0.001; filterBeta:0.001"
+    mindar-image="imageTargetSrc: targets.mind?v=19; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1; warmupTolerance:2; missTolerance:5; filterMinCF:0.001; filterBeta:0.001"
     renderer="alpha:true; antialias:true; physicallyCorrectLights:true"
     vr-mode-ui="enabled:false"
     device-orientation-permission-ui="enabled:false"
     embedded>
 
     <a-assets timeout="30000">
-      <!-- ★ まず PNG を試し、存在しなければ onerror で JPG に切り替える -->
-      <img id="realTrip" src="assets/real-itinerary.png" crossorigin="anonymous"
-           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg'">
+      <!-- PNG優先。無ければJPGにフォールバック -->
+      <img id="realTrip" src="assets/real-itinerary.png?v=19"
+           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg?v=19'">
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
-    <!-- 単一ターゲット（targets.mind の index 0） -->
+    <!-- ★ ここを a-plane → a-image（flatシェーダ）に変更。zを少し前へ -->
     <a-entity mindar-image-target="targetIndex: 0">
-      <a-plane id="overlay" src="#realTrip" visible="false"
-               position="0 0 0" rotation="0 0 0"
-               material="transparent:true; side:double; opacity:1.0"></a-plane>
+      <a-image id="overlay" src="#realTrip" visible="false"
+               position="0 0 0.01"
+               material="shader: flat; transparent: true; opacity: 1; side: double">
+      </a-image>
     </a-entity>
   </a-scene>
 
@@ -51,15 +53,22 @@
     window.addEventListener('error', e=>log('[window.error] '+e.message));
     window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
 
-    // オーバーレイを画像比率で合わせる
+    // 画像比率に合わせて a-image の幅:高を 1:ratio に
     (function(){
-      const img=document.getElementById('realTrip'), plane=document.getElementById('overlay');
-      function setSize(){ if(img.naturalWidth&&img.naturalHeight){ const r=img.naturalHeight/img.naturalWidth; plane.setAttribute('width',1); plane.setAttribute('height',r); log('[overlay] size set h='+r.toFixed(3)); } }
+      const img=document.getElementById('realTrip'), overlay=document.getElementById('overlay');
+      function setSize(){
+        if(img.naturalWidth&&img.naturalHeight){
+          const r=img.naturalHeight/img.naturalWidth;
+          overlay.setAttribute('width',1);
+          overlay.setAttribute('height',r);
+          log('[overlay] size set h='+r.toFixed(3));
+        }
+      }
       if(img.complete) setSize(); else img.addEventListener('load', setSize);
     })();
 
-    // targets.mind の存在チェック
-    (async()=>{ try{const r=await fetch('targets.mind?v=11',{method:'HEAD'}); log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG')); if(!r.ok) alert('targets.mind が見つかりません');}catch(e){log('[targets HEAD error] '+e.message);} })();
+    // targets.mind の存在チェック（キャッシュ回避クエリも一致させる）
+    (async()=>{ try{const r=await fetch('targets.mind?v=19',{method:'HEAD'}); log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG')); if(!r.ok) alert('targets.mind が見つかりません');}catch(e){log('[targets HEAD error] '+e.message);} })();
 
     (function(){
       const btn=document.getElementById('startCam'), hint=document.getElementById('hint'), scene=document.querySelector('a-scene');
@@ -106,19 +115,19 @@
       document.addEventListener('touchend',once,{once:true});
       document.addEventListener('click',once,{once:true});
 
-      // 検出時に PNG/JPG を表示（visible 切替）
+      // 検出時に PNG を表示／見失いで非表示。src を再バインドして順序レースも潰す
       const anchor=document.querySelector('[mindar-image-target]');
-      const plane = document.getElementById('overlay');
+      const overlay=document.getElementById('overlay');
 
       anchor.addEventListener('targetFound', ()=>{
         log('[track] found targetIndex 0');
-        plane.setAttribute('visible', true);
-        // 必要ならスムーズなフェードイン
-        plane.setAttribute('animation__fadein', 'property=material.opacity; from=0; to=1; dur=220; easing=easeOutQuad');
+        overlay.setAttribute('src', '#realTrip'); // 念のため再バインド
+        overlay.setAttribute('material', 'shader: flat; transparent: true; opacity: 1; side: double');
+        overlay.setAttribute('visible', true);
       });
       anchor.addEventListener('targetLost',  ()=>{
         log('[track] lost  targetIndex 0');
-        plane.setAttribute('visible', false);
+        overlay.setAttribute('visible', false);
       });
 
       // 回転/復帰で再スタート
