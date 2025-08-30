@@ -4,25 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>ARしおり（自己修復＋デバッグ10行＋HD要求）</title>
+  <title>ARしおり（HD強制＋デバッグ10行）</title>
 
-  <!-- ★ MindARより先に：getUserMediaを上書きして高解像度を要求 -->
+  <!-- ★ MindARより先に：getUserMedia を上書きして初回からHDを要求 -->
   <script>
     (function () {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
       const origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getUserMedia = function (constraints = {}) {
-        // MindARが {video:true} 等で呼ぶのを強制的に上書き
+        // MindAR/A-Frame が {video:true} 等で呼んでも、ここでHD要求に差し替える
         if (constraints.video) {
           constraints = {
             audio: false,
             video: {
-              // 背面優先
-              facingMode: { ideal: 'environment' },
-              // 1080p狙い（最低720p）
-              width:  { min: 1280, ideal: 1920 },
+              facingMode: { ideal: 'environment' },          // 背面
+              width:  { min: 1280, ideal: 1920 },            // 1080p狙い（最低720p）
               height: { min:  720, ideal: 1080 },
-              frameRate: { ideal: 30, max: 60 }
+              aspectRatio: { ideal: 1.7777777778 },          // 16:9
+              frameRate: { ideal: 30, max: 60 },
+              resizeMode: 'crop-and-scale',
+              advanced: [{ focusMode: 'continuous' }]
             }
           };
         }
@@ -48,7 +49,7 @@
 <body>
   <div class="hint" id="hint">「カメラ開始」を押す → ターゲットを画面の7〜8割で真正面から</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
-  <div id="panel" class="panel">BUILD v16</div>
+  <div id="panel" class="panel">BUILD v17</div>
 
   <a-scene
     mindar-image="imageTargetSrc: #mindfile; autoStart:false; uiScanning:true; uiLoading:true;"
@@ -59,13 +60,14 @@
 
     <a-assets timeout="30000">
       <!-- ★ キャッシュ回避 -->
-      <a-asset-item id="mindfile" src="targets.mind?v=16"></a-asset-item>
-      <img id="realTrip" src="assets/real-itinerary.png?v=16"
-           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg?v=16'">
+      <a-asset-item id="mindfile" src="targets.mind?v=17"></a-asset-item>
+      <img id="realTrip" src="assets/real-itinerary.png?v=17"
+           onerror="this.onerror=null; this.src='assets/real-itinerary.jpg?v=17'">
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
+    <!-- 単一ターゲット（index 0）。flat で確実に明るく表示 -->
     <a-entity mindar-image-target="targetIndex: 0">
       <a-image id="overlay" src="#realTrip" visible="false"
                position="0 0 0.01"
@@ -76,7 +78,7 @@
   <script>
     // ===== 画面ログ（最後の10行だけ保持） =====
     const panel = document.getElementById('panel'), ring=[];
-    const log = (s)=>{ ring.push(s); if(ring.length>10) ring.splice(0, ring.length-10); panel.textContent='BUILD v16\n'+ring.join('\n'); };
+    const log = (s)=>{ ring.push(s); if(ring.length>10) ring.splice(0, ring.length-10); panel.textContent='BUILD v17\n'+ring.join('\n'); };
     window.addEventListener('error', e=>log('[window.error] '+e.message));
     window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
 
@@ -91,7 +93,7 @@
       const btn=document.getElementById('startCam'), hint=document.getElementById('hint');
       const scene=document.querySelector('a-scene'), assets=document.querySelector('a-assets'), mindfile=document.getElementById('mindfile');
       const overlay=document.getElementById('overlay'), anchor=document.querySelector('[mindar-image-target]');
-      let starting=false, started=false, foundOnce=false, restartTimer=null;
+      let starting=false, started=false;
 
       assets.addEventListener('loaded', ()=>log('[assets] loaded'));
       mindfile.addEventListener('loaded', ()=>log('[assets] mindfile loaded'));
@@ -101,33 +103,89 @@
       scene.addEventListener('arReady', ()=>log('[mindar] ready'));
       scene.addEventListener('arError', e=>log('[mindar] error '+(e.detail?.error||'')));
 
-      async function describeTrack(){
-        const v=document.querySelector('video'); if(!v) return;
+      // 実デバイスを見て“背面”IDを特定
+      async function pickBackCameraId(){
         try{
-          v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.muted=true;
-          await v.play().catch(()=>{});
-          const track=v.srcObject?.getVideoTracks?.()[0];
-          const s=track?.getSettings?.()||{};
-          log('[track] facing='+(s.facingMode||'?')+' '+(s.width||'?')+'x'+(s.height||'?')+' fps='+(s.frameRate||'?'));
-          setTimeout(()=>log('[video] '+v.videoWidth+'x'+v.videoHeight),600);
-        }catch(e){ log('[track] '+(e.message||e)); }
+          const list = await navigator.mediaDevices.enumerateDevices();
+          // label は許可後にしか出ない。'back' 'rear' 'environment' を優先
+          const cams = list.filter(d=>d.kind==='videoinput');
+          let back = cams.find(d=>/back|rear|environment|背面/i.test(d.label)) || cams.find(d=>/wide/i.test(d.label));
+          return back?.deviceId || cams[0]?.deviceId || null;
+        }catch(_){ return null; }
+      }
+
+      // より強い制約で順に再取得 → 成功したら video.srcObject を差し替え
+      async function upgradeStream(){
+        const v = document.querySelector('video'); if(!v) return;
+        const oldStream = v.srcObject;
+        const backId = await pickBackCameraId();
+        const candidates = [
+          { width:{exact:1920}, height:{exact:1080} },
+          { width:{min:1920, ideal:1920}, height:{min:1080, ideal:1080} },
+          { width:{exact:1280}, height:{exact:720} },
+          { width:{min:1280, ideal:1280}, height:{min:720, ideal:720} }
+        ];
+        for (const wh of candidates){
+          try{
+            const stream = await navigator.mediaDevices.getUserMedia({
+              audio:false,
+              video: {
+                ...(backId ? {deviceId:{exact:backId}} : {facingMode:{ideal:'environment'}}),
+                ...wh,
+                aspectRatio:{ideal:1.7777777778},
+                frameRate:{ideal:30, max:60},
+                resizeMode:'crop-and-scale',
+                advanced:[{focusMode:'continuous'}]
+              }
+            });
+            // 差し替え
+            v.srcObject = stream;
+            await v.play().catch(()=>{});
+            // 旧トラック停止
+            oldStream?.getTracks?.().forEach(t=>t.stop());
+            // 状態ログ
+            const track = stream.getVideoTracks()[0];
+            const s = track.getSettings?.()||{};
+            log('[upgrade] '+(s.facingMode||'?')+' '+(s.width||'?')+'x'+(s.height||'?')+' fps='+(s.frameRate||'?'));
+            setTimeout(()=> log('[video] '+v.videoWidth+'x'+v.videoHeight), 600);
+            return true;
+          }catch(e){
+            log('[upgrade fail] '+(wh.width.exact||wh.width.min)+'x'+(wh.height.exact||wh.height.min)+' '+(e.name||e.message||e));
+          }
+        }
+        return false;
       }
 
       async function startCamera(force=false){
         if(starting || (started && !force)) return;
         starting=true;
-        clearTimeout(restartTimer);
         try{
           log('[start] try');
           try{ await scene.systems['mindar-image-system'].stop(); }catch(_){}
-          await scene.systems['mindar-image-system'].start(); // ← ここで getUserMedia が「上書き版」で走る
-          started=true; foundOnce=false;
+          await scene.systems['mindar-image-system'].start(); // ここで上書きGUMが効く
+          started=true;
           btn.style.display='none'; hint.textContent='ターゲットを映してください（画面の7〜8割）';
-          await describeTrack();
-          log('[start] done');
 
-          // 7秒以内に見つからなければリスタート
-          restartTimer=setTimeout(()=>{ if(!foundOnce){ log('[auto-restart] no detection within 7s'); startCamera(true); } }, 7000);
+          // 実際の設定と表示解像度
+          const v=document.querySelector('video');
+          if (v) {
+            await v.play().catch(()=>{});
+            const track=v.srcObject?.getVideoTracks?.()[0];
+            const s=track?.getSettings?.()||{};
+            log('[track] '+(s.facingMode||'?')+' '+(s.width||'?')+'x'+(s.height||'?')+' fps='+(s.frameRate||'?'));
+            setTimeout(()=> log('[video] '+v.videoWidth+'x'+v.videoHeight), 600);
+          }
+
+          // 低解像度なら強制アップグレードを試みる
+          setTimeout(async ()=>{
+            const vw = v?.videoWidth||0, vh = v?.videoHeight||0;
+            if (Math.max(vw, vh) < 1000) { // 例：480x640等
+              log('[upgrade] try higher resolution…');
+              await upgradeStream();
+            }
+          }, 800);
+
+          log('[start] done');
         }catch(e){
           log('[start error] '+(e?.message||e));
           alert('カメラ起動に失敗: '+(e?.message||e));
@@ -141,7 +199,6 @@
       document.addEventListener('click',      once, {once:true});
 
       anchor.addEventListener('targetFound', ()=>{
-        foundOnce=true;
         overlay.setAttribute('visible',true);
         log('[track] found targetIndex 0');
       });
@@ -150,6 +207,7 @@
         log('[track] lost targetIndex 0');
       });
 
+      // 回転/復帰時の再スタート（自動リロードは一切なし）
       window.addEventListener('orientationchange', ()=> setTimeout(()=> startCamera(true), 350));
       document.addEventListener('visibilitychange', ()=> { if(document.visibilityState==='visible') setTimeout(()=> startCamera(true), 100); });
       window.addEventListener('pageshow', (e)=> { if(e.persisted) setTimeout(()=> startCamera(true), 100); });
