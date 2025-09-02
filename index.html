@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-  <title>ARしおり（直下配置・安定版）</title>
+  <title>ARしおり（前面固定＋再バインド＋縮小）</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
@@ -20,89 +20,81 @@
 <body>
   <div class="hint" id="hint">「カメラ開始」を押して、ターゲットを画面の7〜8割で真正面から映してください</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
-  <div id="panel" class="panel">BUILD v27</div>
+  <div id="panel" class="panel">BUILD v28</div>
 
-  <!-- ★ ここを URL 直指定に戻す（a-asset-item は使わない） -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=27; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1"
+    mindar-image="imageTargetSrc: targets.mind?v=28; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1"
     renderer="alpha:true; antialias:true"
     vr-mode-ui="enabled:false"
     device-orientation-permission-ui="enabled:false"
     embedded>
 
     <a-assets timeout="30000">
-      <!-- 直下配置の PNG。JPG が実体なら onerror でフォールバック -->
-      <img id="overlayImg" src="real-itinerary.png?v=27"
-           onerror="this.onerror=null; this.src='real-itinerary.jpg?v=27'">
+      <!-- 直下の画像（PNG推奨）。JPGなら onerror でフォールバック -->
+      <img id="overlayImg" src="real-itinerary.png?v=28"
+           onerror="this.onerror=null; this.src='real-itinerary.jpg?v=28'">
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
     <a-entity mindar-image-target="targetIndex: 0">
-      <!-- 画像が読めない時の目印（薄い緑の板）。必ず表示される -->
-      <a-plane id="debugPlane" color="#00ff88" opacity="0.25" visible="false" position="0 0 0.005"></a-plane>
-      <!-- 本命：ライト非依存の flat。z を少し前へ出して z-fighting 回避 -->
-      <a-image id="overlay" src="#overlayImg" visible="false"
-               position="0 0 0.01"
-               material="shader: flat; transparent: true; opacity: 1; side: double"></a-image>
+      <!-- 画像未ロードでも見える診断用プレート -->
+      <a-plane id="debugPlane" color="#00ff88" opacity="0.25" visible="false" position="0 0 0.004"></a-plane>
+      <!-- 本命：常に前面＆深度無視で確実に描画 -->
+      <a-image id="overlay" src="#overlayImg" visible="false" position="0 0 0.01"
+               material="shader: flat; transparent: true; opacity: 1; side: double; depthTest: false; depthWrite: false; alphaTest: 0.001">
+      </a-image>
     </a-entity>
   </a-scene>
 
   <script>
-    const V='27';
-    const panel=document.getElementById('panel');
-    const ring=[]; const log=(m)=>{ ring.push(m); if(ring.length>10) ring.splice(0,ring.length-10);
-      panel.textContent='BUILD v'+V+'\n'+ring.join('\n'); };
-    window.addEventListener('error', e=>log('[window.error] '+e.message));
-    window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
+    const V='28';
+    const panel=document.getElementById('panel'), ring=[]; const log=(m)=>{ ring.push(m); if(ring.length>10) ring.splice(0,ring.length-10); panel.textContent='BUILD v'+V+'\n'+ring.join('\n'); };
 
-    // 画像ロード・サイズ合わせ（幅=1, 高さ=比率）
-    (function(){
-      const img=document.getElementById('overlayImg'),
-            overlay=document.getElementById('overlay'),
-            dbg=document.getElementById('debugPlane');
-      function fit(){
-        if(!img.naturalWidth||!img.naturalHeight) return;
-        const r=img.naturalHeight/img.naturalWidth;
-        overlay.setAttribute('width',1); overlay.setAttribute('height',r);
-        dbg.setAttribute('width',1); dbg.setAttribute('height',r);
-        log('[overlay] size set h='+r.toFixed(3));
-      }
-      img.addEventListener('load', ()=>{ log('[image] loaded '+img.naturalWidth+'x'+img.naturalHeight); fit(); });
-      img.addEventListener('error',()=> log('[image] ERROR (check file name/path)'));
-      if(img.complete && img.naturalWidth){ log('[image] loaded '+img.naturalWidth+'x'+img.naturalHeight); fit(); }
+    // 画像ロード → 必要なら 2048px へ縮小して差し替え（iOSで大画像が貼れない対策）
+    (async function prepareImage(){
+      const img=document.getElementById('overlayImg');
+      const downscaleIfNeeded = async () => {
+        if (!img.naturalWidth) return;
+        const max = 2048;
+        const s = Math.max(img.naturalWidth, img.naturalHeight);
+        if (s <= max) return; // 縮小不要
+        const k = max / s, w = Math.round(img.naturalWidth*k), h = Math.round(img.naturalHeight*k);
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+        img.src = c.toDataURL('image/png', 0.92);
+        await img.decode();
+        log('[image] downscaled to '+w+'x'+h);
+      };
+      const onload = async ()=>{
+        log('[image] loaded '+img.naturalWidth+'x'+img.naturalHeight);
+        await downscaleIfNeeded();
+        sizeToImage();
+      };
+      if (img.complete && img.naturalWidth) onload(); else img.addEventListener('load', onload);
+      img.addEventListener('error', ()=> log('[image] ERROR (check file name/path)'));
     })();
 
-    // targets.mind の HEAD 確認（直下）
-    (async()=>{ try{
-      const r=await fetch(`targets.mind?v=${V}`,{method:'HEAD'});
-      log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG'));
-      if(!r.ok) alert('targets.mind が見つかりません（index.html と同階層に置く）');
-    }catch(e){ log('[targets HEAD error] '+e.message); } })();
+    // a-image 幅:高 = 1:ratio に調整
+    function sizeToImage(){
+      const img=document.getElementById('overlayImg'), overlay=document.getElementById('overlay'), dbg=document.getElementById('debugPlane');
+      if(!img.naturalWidth||!img.naturalHeight) return;
+      const r=img.naturalHeight/img.naturalWidth;
+      overlay.setAttribute('width',1); overlay.setAttribute('height',r);
+      dbg.setAttribute('width',1); dbg.setAttribute('height',r);
+      log('[overlay] size set h='+r.toFixed(3));
+    }
+
+    // targets.mind 存在確認
+    fetch(`targets.mind?v=${V}`,{method:'HEAD'}).then(r=>log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG'))).catch(e=>log('[targets HEAD error] '+e.message));
 
     (function(){
       const btn=document.getElementById('startCam'), hint=document.getElementById('hint'), scene=document.querySelector('a-scene');
       scene.addEventListener('loaded', ()=>log('[scene] loaded'));
       scene.addEventListener('arReady', ()=>log('[mindar] ready'));
       scene.addEventListener('arError', e=>log('[mindar] error '+(e.detail?.error||'')));
-      let starting=false, started=false;
 
-      async function bumpCameraQuality(){
-        const v=document.querySelector('video'); if(!v) return;
-        try{
-          v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.muted=true;
-          await v.play().catch(()=>{});
-          const track=v.srcObject?.getVideoTracks?.()[0];
-          if(track?.applyConstraints){
-            await track.applyConstraints({
-              facingMode:{ideal:'environment'},
-              width:{ideal:1920}, height:{ideal:1080},
-              advanced:[{focusMode:'continuous'}]
-            });
-          }
-          setTimeout(()=> log('[video] '+v.videoWidth+'x'+v.videoHeight), 600);
-        }catch(e){ log('[bump] '+(e.message||e)); }
-      }
+      let starting=false, started=false;
 
       async function startCamera(force=false){
         if(starting || (started && !force)) return;
@@ -110,43 +102,47 @@
         try{
           log('[start] try');
           try{ await scene.systems['mindar-image-system'].stop(); }catch(_){}
-          await scene.systems['mindar-image-system'].start(); // ← this.ui undefined を回避
-          await bumpCameraQuality();
-          started=true; btn.style.display='none';
-          hint.textContent='ターゲットを映してください（画面の7〜8割）';
+          await scene.systems['mindar-image-system'].start();
+          started=true; btn.style.display='none'; hint.textContent='ターゲットを映してください（画面の7〜8割）';
+          const v=document.querySelector('video'); setTimeout(()=>{ if(v) log('[video] '+v.videoWidth+'x'+v.videoHeight); }, 600);
           log('[start] done');
-        }catch(e){
-          log('[start error] '+(e?.message||e));
-          alert('カメラ起動に失敗: '+(e?.message||e));
-        }finally{ starting=false; }
+        }catch(e){ log('[start error] '+(e?.message||e)); alert('カメラ起動に失敗: '+(e?.message||e)); }
+        finally{ starting=false; }
       }
 
       btn.addEventListener('click', ()=>startCamera(true));
-      const once=()=>startCamera(true);
-      document.addEventListener('pointerdown',once,{once:true});
-      document.addEventListener('touchend',once,{once:true});
-      document.addEventListener('click',once,{once:true});
+      const once=()=>startCamera(true); document.addEventListener('pointerdown',once,{once:true}); document.addEventListener('touchend',once,{once:true}); document.addEventListener('click',once,{once:true});
 
       const anchor=document.querySelector('[mindar-image-target]');
       const overlay=document.getElementById('overlay'), dbg=document.getElementById('debugPlane');
 
       anchor.addEventListener('targetFound', ()=>{
-        // 画像が無ければ緑の板だけでも見える
-        const ok = document.getElementById('overlayImg').naturalWidth > 0;
+        // 最前面に固定（描画順）
+        overlay.object3D.renderOrder = 999;
+        // 画像が無くても目視できるように緑板は必ず出す
         dbg.setAttribute('visible', true);
-        overlay.setAttribute('visible', ok);
-        // 念のため再バインド（読み込み順のレース対策）
+
+        // テクスチャ再バインド＆強制更新（map/needsUpdate を明示）
         overlay.setAttribute('src', '#overlayImg');
-        overlay.setAttribute('material','shader: flat; transparent:true; opacity:1; side:double');
-        log('[track] found targetIndex 0');
+        const mesh = overlay.getObject3D('mesh');
+        if (mesh && mesh.material) {
+          if (mesh.material.map) mesh.material.map.needsUpdate = true;
+          mesh.material.needsUpdate = true;
+        }
+
+        // 画像がロード済みなら本番表示
+        const ok = document.getElementById('overlayImg').naturalWidth > 0;
+        overlay.setAttribute('visible', ok);
+        log('[track] found targetIndex 0 (visible='+ok+')');
       });
+
       anchor.addEventListener('targetLost', ()=>{
         overlay.setAttribute('visible', false);
         dbg.setAttribute('visible', false);
         log('[track] lost  targetIndex 0');
       });
 
-      // 画面回転/復帰で再スタート（自動リロードなし）
+      // 回転/復帰で再スタート（自動リロードなし）
       window.addEventListener('orientationchange', ()=> setTimeout(()=> startCamera(true), 350));
       document.addEventListener('visibilitychange', ()=> { if(document.visibilityState==='visible') setTimeout(()=> startCamera(true), 100); });
       window.addEventListener('pageshow', (e)=> { if(e.persisted) setTimeout(()=> startCamera(true), 100); });
