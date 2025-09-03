@@ -3,163 +3,47 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>MindAR 安定版（手動起動＋HD＋ブレ低減）</title>
-  <!-- A-Frame & MindAR（公式CDN） -->
+  <title>MindAR 最小サンプル（自前ターゲット）</title>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <style>
-    html,body{margin:0;background:#000;overflow:hidden}
-    .hint{position:fixed;left:0;right:0;top:0;z-index:3;color:#fff;background:rgba(0,0,0,.35);
-          padding:8px 12px;font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Noto Sans JP',Meiryo}
-    .btn{position:fixed;right:12px;bottom:12px;z-index:4;background:#fff;color:#111;border:0;border-radius:12px;
-         padding:12px 16px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-    .panel{position:fixed;left:8px;bottom:8px;z-index:99999;pointer-events:none;background:rgba(0,0,0,.7);
-           color:#00ff88;white-space:pre-wrap;padding:8px 10px;border-radius:10px;
-           font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;max-width:92vw}
-    .blocker{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:100000;
-             background:rgba(0,0,0,.9);color:#fff;text-align:left;padding:24px;font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Noto Sans JP',Meiryo}
-    .blocker .box{max-width:640px;width:100%;background:#111;border:1px solid #333;border-radius:12px;padding:18px 20px}
-    .blocker h2{margin:0 0 8px;font-size:18px}
-    .blocker ol{margin:8px 0 0 20px}
-    .blocker li{margin:6px 0}
-  </style>
 </head>
 <body>
-  <div class="hint" id="hint">「カメラ開始」を押して、ターゲットを画面の7〜8割で正対させてください（Safari本体で）</div>
-  <button id="startCam" class="btn">カメラ開始</button>
-  <div id="panel" class="panel">BUILD v52</div>
-
-  <!-- アプリ内ブラウザ対策（Googleアプリ等） -->
-  <div id="inappBlocker" class="blocker">
-    <div class="box">
-      <h2>このブラウザではカメラが使えません</h2>
-      <p>iPhoneの <b>Googleアプリ/インアプリブラウザ</b>では Web カメラが制限されます。<br>右上「…」→ <b>Safariで開く</b> を選んでください。</p>
-      <ol>
-        <li>Safariで開いたら、アドレスバー左の「ぁA」→ <b>サイト設定</b> → <b>カメラ：許可</b></li>
-        <li>必要なら 設定 → Safari → カメラ → <b>許可</b></li>
-      </ol>
-    </div>
-  </div>
-
-  <!-- MindAR：自前ターゲット（直下）。autoStart は false（手動起動） -->
+  <!-- ルート直下の targets.mind を直指定。キャッシュ回避に ?v=1 を付けてもOK -->
   <a-scene
-    mindar-image="
-      imageTargetSrc: targets.mind?v=52;
-      autoStart: false;
-      maxTrack: 1;
-      filterMinCF: 0.0005;
-      filterBeta: 2000;
-      warmupTolerance: 7;
-      missTolerance: 10;"
+    mindar-image="imageTargetSrc: targets.mind?v=50;"
     vr-mode-ui="enabled:false"
     device-orientation-permission-ui="enabled:false">
 
-    <a-assets timeout="30000">
-      <!-- 重ねるPNG（直下）。JPG 実体なら onerror でフォールバック -->
-      <img id="overlay" src="real-itinerary.png?v=52"
-           onerror="this.onerror=null; this.src='real-itinerary.jpg?v=52'">
+    <a-assets>
+      <!-- 重ねるPNG（直下） -->
+      <img id="overlay" src="real-itinerary.png?v=1">
     </a-assets>
 
-    <a-camera look-controls="enabled:false" camera="near:0.01; far:1000"></a-camera>
+    <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
-    <a-entity id="anchor" mindar-image-target="targetIndex: 0">
-      <a-plane id="pane" src="#overlay"
-               position="0 0 0.01" rotation="0 0 0"
-               material="shader: flat; transparent:true; opacity:1; side:double; depthTest:false; depthWrite:false">
-      </a-plane>
+    <!-- ターゲット0上にPNGをジャストサイズで表示（幅=1, 高さ=比率） -->
+    <a-entity mindar-image-target="targetIndex: 0">
+      <a-plane id="pane" src="#overlay" position="0 0 0" rotation="0 0 0"></a-plane>
     </a-entity>
   </a-scene>
 
   <script>
-    const V='52';
-    const panel=document.getElementById('panel'), ring=[]; const log=(m)=>{ ring.push(m); if(ring.length>12) ring.splice(0,ring.length-12); panel.textContent='BUILD v'+V+'\n'+ring.join('\n'); };
-    window.addEventListener('error', e=>log('[window.error] '+e.message));
-    window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
-
-    // インアプリ（GSA/FB/LINE等）を検出してブロック表示
-    (function(){
-      const ua=navigator.userAgent;
-      const isIOS=/iP(hone|ad|od)/i.test(ua);
-      const isGSA=/GSA/i.test(ua), isFB=/FBAN|FBAV/i.test(ua), isLINE=/Line\//i.test(ua), isTW=/Twitter/i.test(ua);
-      if(isIOS && (isGSA||isFB||isLINE||isTW)){
-        document.getElementById('inappBlocker').style.display='flex';
-        document.getElementById('startCam').style.display='none';
-      }
-    })();
-
-    // 画像比率で平面サイズ（幅=1, 高さ=比率）に合わせる
-    (function(){
-      const img=document.getElementById('overlay'), pane=document.getElementById('pane');
-      function fit(){
-        if(!img.naturalWidth||!img.naturalHeight) return;
-        const r=img.naturalHeight/img.naturalWidth;
-        pane.setAttribute('width',1); pane.setAttribute('height',r);
-        log('[overlay] size set h='+r.toFixed(3));
-      }
-      if(img.complete && img.naturalWidth) fit(); else img.addEventListener('load', fit);
-    })();
-
-    // MindAR イベントログ
-    const scene=document.querySelector('a-scene');
-    scene.addEventListener('loaded', ()=>log('[scene] loaded'));
-    scene.addEventListener('arReady', ()=>log('[mindar] ready'));
-    scene.addEventListener('arError', e=>log('[mindar] error '+(e.detail?.error||'')));
-
-    const anchor=document.getElementById('anchor');
-    anchor.addEventListener('targetFound', ()=>log('[track] found 0'));
-    anchor.addEventListener('targetLost',  ()=>log('[track] lost  0'));
-
-    // 手動起動（iOSはユーザー操作が安全）
-    const btn=document.getElementById('startCam');
-    let starting=false, started=false;
-
-    async function bumpCameraQuality(){
-      const v=document.querySelector('video'); if(!v) return;
-      try{
-        v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.muted=true;
-        await v.play().catch(()=>{});
-        const track=v.srcObject?.getVideoTracks?.()[0];
-        if(track?.applyConstraints){
-          await track.applyConstraints({
-            facingMode:{ideal:'environment'},
-            width:{ideal:1920}, height:{ideal:1080},
-            advanced:[{focusMode:'continuous'}]
-          });
-        }
-        setTimeout(()=>{ if(v) log('[video] '+v.videoWidth+'x'+v.videoHeight); }, 600);
-      }catch(e){ log('[bump] '+(e.message||e)); }
+    // 画像比率で平面サイズを合わせる（0サイズ防止）
+    const img = document.getElementById('overlay');
+    const pane= document.getElementById('pane');
+    function fit(){
+      if(!img.naturalWidth||!img.naturalHeight) return;
+      const r = img.naturalHeight / img.naturalWidth;
+      pane.setAttribute('width', 1);
+      pane.setAttribute('height', r);
+      console.log('[overlay] size set', {w:1, h:r});
     }
+    if (img.complete && img.naturalWidth) fit(); else img.addEventListener('load', fit);
 
-    async function startCamera(force=false){
-      if(starting || (started && !force)) return;
-      starting=true;
-      try{
-        log('[start] try');
-        try{ await scene.systems['mindar-image-system'].stop(); }catch(_){}
-        await scene.systems['mindar-image-system'].start();
-        await bumpCameraQuality();
-        started=true; btn.style.display='none';
-        log('[start] done');
-      }catch(e){
-        log('[start error] '+(e?.message||e));
-        alert('カメラ起動に失敗: '+(e?.message||e)+'\n\n対処: Safari → ぁA → サイト設定 → カメラ: 許可 / 設定→Safari→カメラ: 許可');
-      }finally{ starting=false; }
-    }
-
-    btn.addEventListener('click', ()=>startCamera(true));
-    // 予備：初回タップでも起動
-    const once=()=>startCamera(true);
-    document.addEventListener('pointerdown',once,{once:true});
-    document.addEventListener('touchend',once,{once:true});
-    document.addEventListener('click',once,{once:true});
-
-    // 回転/復帰後の再スタート（自動リロード無し）
-    window.addEventListener('orientationchange', ()=> setTimeout(()=> startCamera(true), 350));
-    document.addEventListener('visibilitychange', ()=> { if(document.visibilityState==='visible') setTimeout(()=> startCamera(true), 100); });
-    window.addEventListener('pageshow', (e)=> { if(e.persisted) setTimeout(()=> startCamera(true), 100); });
-
-    // targets.mind が 200 か軽く確認（任意）
-    fetch('targets.mind?v=52',{method:'HEAD'}).then(r=>log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG'))).catch(e=>log('[targets HEAD error] '+e.message));
+    // 検出ログ
+    const anchor = document.querySelector('[mindar-image-target]');
+    anchor.addEventListener('targetFound', ()=>console.log('found 0'));
+    anchor.addEventListener('targetLost',  ()=>console.log('lost 0'));
   </script>
 </body>
 </html>
