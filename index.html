@@ -3,9 +3,8 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-  <title>ARしおり（前面固定＋flat材質＋デバッグ10行）</title>
+  <title>ARしおり（Safari安定版：flat+前面+再バインド）</title>
 
-  <!-- ライブラリ -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
@@ -23,52 +22,49 @@
 <body>
   <div class="hint" id="hint">「カメラ開始」を押して、ターゲットを画面の7〜8割で正対させてください</div>
   <button id="startCam" class="start-btn">カメラ開始</button>
-  <div id="panel" class="panel">BUILD v30</div>
+  <div id="panel" class="panel">BUILD v31</div>
 
-  <!-- MindAR は URL 直指定（初期化順の不具合回避） -->
+  <!-- MindAR を URL 直指定。renderer は alpha:false でレイヤ競合を避ける -->
   <a-scene
-    mindar-image="imageTargetSrc: targets.mind?v=30; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1"
-    renderer="alpha:true; antialias:true"
+    mindar-image="imageTargetSrc: targets.mind?v=31; autoStart:false; uiScanning:true; uiLoading:true; maxTrack:1"
+    renderer="antialias:true"
     vr-mode-ui="enabled:false"
     device-orientation-permission-ui="enabled:false"
     embedded>
 
     <a-assets timeout="30000">
-      <!-- 置換画像は直下に real-itinerary.png。JPG なら onerror でフォールバック -->
-      <img id="overlayImg" src="real-itinerary.png?v=30"
-           onerror="this.onerror=null; this.src='real-itinerary.jpg?v=30'">
+      <!-- 置換画像は直下。JPG 実体なら onerror でフォールバック -->
+      <img id="overlayImg" src="real-itinerary.png?v=31"
+           onerror="this.onerror=null; this.src='real-itinerary.jpg?v=31'">
     </a-assets>
 
-    <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
+    <!-- カメラの near/far を明示（クリップの誤爆回避） -->
+    <a-camera position="0 0 0" look-controls="enabled:false" camera="near:0.01; far:1000"></a-camera>
 
     <a-entity id="anchor" mindar-image-target="targetIndex: 0">
-      <!-- ★ デバッグ板：flat＋前面固定＋深度無視。画像がダメでも必ず見える -->
+      <!-- デバッグ板：flat＋両面＋前面固定。必ず見える -->
       <a-plane id="debugPlane" position="0 0 0.004" visible="false"
                material="shader: flat; color: #00ff88; transparent: true; opacity: 0.35; side: double; depthTest: false; depthWrite: false">
       </a-plane>
 
-      <!-- ★ 本命：flat（ライト無依存）＋前面固定＋深度無視。少し前に出す -->
-      <a-image id="overlay" src="#overlayImg" visible="false" position="0 0 0.01"
-               material="shader: flat; transparent: true; opacity: 1; side: double; depthTest: false; depthWrite: false; alphaTest: 0.001">
-      </a-image>
+      <!-- 本命：a-plane + material.src（flat）。常に前面。zを少し手前へ -->
+      <a-plane id="overlay" position="0 0 0.01" visible="false"
+               material="shader: flat; src: #overlayImg; transparent: true; opacity: 1; side: double; depthTest: false; depthWrite: false; alphaTest: 0.001">
+      </a-plane>
     </a-entity>
   </a-scene>
 
   <script>
-    const V = '30';
-
-    // ===== 画面ログ（最後10行のみ） =====
-    const panel = document.getElementById('panel'), ring=[];
-    const log = (m)=>{ ring.push(m); if(ring.length>10) ring.splice(0, ring.length-10); panel.textContent='BUILD v'+V+'\n'+ring.join('\n'); };
+    const V='31';
+    const panel=document.getElementById('panel'), ring=[]; const log=(m)=>{ ring.push(m); if(ring.length>10) ring.splice(0,ring.length-10); panel.textContent='BUILD v'+V+'\n'+ring.join('\n'); };
     window.addEventListener('error', e=>log('[window.error] '+e.message));
     window.addEventListener('unhandledrejection', e=>log('[promise] '+(e.reason?.message||e.reason)));
 
-    // ===== 画像ロード＆サイズ合わせ（幅=1, 高さ=比率） =====
+    // 画像ロード＆比率合わせ（幅=1, 高さ=比率）— 0サイズを防止
     (function(){
       const img=document.getElementById('overlayImg'),
             overlay=document.getElementById('overlay'),
             dbg=document.getElementById('debugPlane');
-
       function fit(){
         if(!img.naturalWidth||!img.naturalHeight) return;
         const r = img.naturalHeight / img.naturalWidth;
@@ -77,29 +73,21 @@
         log('[overlay] size set h='+r.toFixed(3));
       }
       img.addEventListener('load', ()=>{ log('[image] loaded '+img.naturalWidth+'x'+img.naturalHeight); fit(); });
-      img.addEventListener('error',()=> log('[image] ERROR (file name/path?)'));
+      img.addEventListener('error',()=> log('[image] ERROR (check file name/path)'));
       if (img.complete && img.naturalWidth) { log('[image] loaded '+img.naturalWidth+'x'+img.naturalHeight); fit(); }
     })();
 
-    // ===== targets.mind の存在チェック =====
-    fetch(`targets.mind?v=${V}`, {method:'HEAD'})
-      .then(r=>log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG')))
-      .catch(e=>log('[targets HEAD error] '+e.message));
+    // targets.mind の存在確認
+    fetch(`targets.mind?v=${V}`,{method:'HEAD'}).then(r=>log('[targets HEAD] '+r.status+' '+(r.ok?'OK':'NG')))
+                                               .catch(e=>log('[targets HEAD error] '+e.message));
 
-    // ===== 起動・検出 =====
     (function(){
-      const btn=document.getElementById('startCam'),
-            hint=document.getElementById('hint'),
-            scene=document.querySelector('a-scene'),
-            anchorEl=document.getElementById('anchor'),
-            overlay=document.getElementById('overlay'),
-            dbg=document.getElementById('debugPlane');
+      const btn=document.getElementById('startCam'), hint=document.getElementById('hint'), scene=document.querySelector('a-scene');
+      let starting=false, started=false;
 
       scene.addEventListener('loaded', ()=>log('[scene] loaded'));
       scene.addEventListener('arReady', ()=>log('[mindar] ready'));
       scene.addEventListener('arError', e=>log('[mindar] error '+(e.detail?.error||'')));
-
-      let starting=false, started=false;
 
       async function startCamera(force=false){
         if(starting || (started && !force)) return;
@@ -109,59 +97,57 @@
           try{ await scene.systems['mindar-image-system'].stop(); }catch(_){}
           await scene.systems['mindar-image-system'].start();
           started=true; btn.style.display='none'; hint.textContent='ターゲットを映してください（画面の7〜8割）';
-
-          // 実際のビデオ解像度ログ
-          const v=document.querySelector('video');
-          setTimeout(()=>{ if(v) log('[video] '+v.videoWidth+'x'+v.videoHeight); }, 600);
-
+          const v=document.querySelector('video'); setTimeout(()=>{ if(v) log('[video] '+v.videoWidth+'x'+v.videoHeight); }, 600);
           log('[start] done');
-        }catch(e){
-          log('[start error] '+(e?.message||e));
-          alert('カメラ起動に失敗: '+(e?.message||e));
-        }finally{ starting=false; }
+        }catch(e){ log('[start error] '+(e?.message||e)); alert('カメラ起動に失敗: '+(e?.message||e)); }
+        finally{ starting=false; }
       }
-
       btn.addEventListener('click', ()=>startCamera(true));
-      const once=()=>startCamera(true);
-      document.addEventListener('pointerdown',once,{once:true});
-      document.addEventListener('touchend',once,{once:true});
-      document.addEventListener('click',once,{once:true});
+      const once=()=>startCamera(true); document.addEventListener('pointerdown',once,{once:true}); document.addEventListener('touchend',once,{once:true}); document.addEventListener('click',once,{once:true});
 
-      // ===== 検出ハンドラ =====
-      anchorEl.addEventListener('targetFound', ()=>{
-        // 念のためアンカー可視
-        if (anchorEl.object3D) anchorEl.object3D.visible = true;
+      const anchor=document.getElementById('anchor');
+      const overlay=document.getElementById('overlay');
+      const dbg=document.getElementById('debugPlane');
 
-        // 最前面描画（背景ビデオより確実に前）
-        if (overlay.object3D)   overlay.object3D.renderOrder = 999;
-        if (dbg.object3D)       dbg.object3D.renderOrder     = 998;
+      anchor.addEventListener('targetFound', ()=>{
+        // 念のためアンカーを可視化
+        if (anchor.object3D) anchor.object3D.visible = true;
 
-        // デバッグ板は必ず見せる
+        // 最前面へ（背景ビデオより確実に前）
+        if (overlay.object3D) overlay.object3D.renderOrder = 999;
+        if (dbg.object3D)     dbg.object3D.renderOrder     = 998;
+
+        // デバッグ板は必ず表示
         dbg.setAttribute('visible', true);
 
-        // テクスチャを明示再バインド＆更新
-        overlay.setAttribute('src', '#overlayImg');
+        // ★ テクスチャを明示再バインド & 強制更新（Safari 対策）
+        overlay.setAttribute('material', 'shader: flat; src: #overlayImg; transparent: true; opacity: 1; side: double; depthTest: false; depthWrite: false; alphaTest: 0.001');
         const mesh = overlay.getObject3D('mesh');
         if (mesh && mesh.material) {
           if (mesh.material.map) mesh.material.map.needsUpdate = true;
           mesh.material.needsUpdate = true;
         }
 
-        // 画像が読み込めていれば本番も表示
+        // 画像が読めていれば本番も表示
         const ok = document.getElementById('overlayImg').naturalWidth > 0;
         overlay.setAttribute('visible', ok);
-
         log('[track] found targetIndex 0 (overlay='+ok+')');
+
+        // ▼万一見えない時の“揺さぶり”（一度だけ微小サイズ更新）
+        setTimeout(()=>{
+          const w = parseFloat(overlay.getAttribute('width')||1);
+          overlay.setAttribute('width', w + 0.0001);
+        }, 50);
       });
 
-      anchorEl.addEventListener('targetLost', ()=>{
+      anchor.addEventListener('targetLost', ()=>{
         overlay.setAttribute('visible', false);
         dbg.setAttribute('visible', false);
-        if (anchorEl.object3D) anchorEl.object3D.visible = false;
+        if (anchor.object3D) anchor.object3D.visible = false;
         log('[track] lost  targetIndex 0');
       });
 
-      // 回転/復帰で再スタート（自動リロードなし）
+      // 画面回転/復帰で再スタート
       window.addEventListener('orientationchange', ()=> setTimeout(()=> startCamera(true), 350));
       document.addEventListener('visibilitychange', ()=> { if(document.visibilityState==='visible') setTimeout(()=> startCamera(true), 100); });
       window.addEventListener('pageshow', (e)=> { if(e.persisted) setTimeout(()=> startCamera(true), 100); });
